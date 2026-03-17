@@ -4,7 +4,7 @@ expertMode = true
 
 [nix]
 channel = "stable-25_05"
-packages = ["bcftools", "bzip2", "curl", "htslib", "iana-etc", "libdeflate", "samtools", "xz", "zlib"]
+packages = ["bcftools", "bzip2", "curl", "htslib", "iana-etc", "libdeflate", "samtools", "xz", "zlib", "minimap2"]
 
 [workflows]
 runButton = "Project"

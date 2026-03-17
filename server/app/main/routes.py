@@ -89,11 +89,17 @@ def get_all_analyses():
         validate_cache()
         with open(CACHE_PATH, 'r') as cache_fs:
             for line in cache_fs:
-                [projectId, minion_dir, NANOCAS_DIR] = line.split("\t")
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                projectId, minion_dir, nanocas_dir = parts[0], parts[1], parts[2]
                 data.append({
-                    "id"        : projectId,
-                    "minion_dir": minion_dir,
-                    "NANOCAS_DIR" : NANOCAS_DIR
+                    "id"         : projectId,
+                    "minion_dir" : minion_dir,
+                    "nanocas_dir": nanocas_dir,
                 })
 
         return json.dumps({

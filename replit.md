@@ -32,9 +32,9 @@ A nanopore classification and alerting web application for portable diagnostics.
 - eventlet (async worker)
 - pysam (bioinformatics)
 - biopython
+- minimap2 (system package — sequence alignment / index building)
 - minknow_api (Nanopore device integration)
 - watchdog (file system monitoring)
-- celery + redis (distributed tasks)
 - twilio (SMS alerts)
 
 ### Frontend (Node.js)
@@ -54,5 +54,6 @@ A nanopore classification and alerting web application for portable diagnostics.
 ## Notes
 
 - Twilio SMS alerts require TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, ALERT_RECIPIENT_PHONE in server/.env
-- Redis required for distributed/Celery mode (ENABLE_DISTRIBUTED=true)
 - MinKNOW API requires a running MinKNOW instance for device communication
+- Database creation runs in a background thread (no Celery/Redis required); progress is pushed to the client via Socket.IO
+- `get_all_analyses` returns `nanocas_dir` (lowercase) to match frontend expectations

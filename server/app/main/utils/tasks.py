@@ -1,18 +1,15 @@
 import os
-from celery import Celery
-import subprocess, os, shutil, datetime
-import json, sys
-import logging
+import subprocess
 import shutil
+import datetime
+import json
+import sys
+import logging
 from Bio import SeqIO
+from typing import Callable, Optional
 
-redis_host = os.getenv('REDIS_HOST', 'localhost')
-redis_port = os.getenv('REDIS_PORT', '6379')
-broker_url = f'redis://{redis_host}:{redis_port}'
-
-# Configure the 'nanocas' logger for Celery tasks
 logger = logging.getLogger('nanocas')
-if not logger.handlers:  # Prevent duplicate handlers
+if not logger.handlers:
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(logging.DEBUG)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -20,31 +17,29 @@ if not logger.handlers:  # Prevent duplicate handlers
     logger.addHandler(handler)
     logger.setLevel(logging.DEBUG)
 
-celery = Celery('tasks', broker=broker_url, backend='redis')
 
-@celery.task(bind=True, name='app.main.tasks.int_download_database')
-def int_download_database(self, db_data, nanocas_location, queries):
+def int_download_database(db_data: dict, nanocas_location: str, queries: list,
+                          progress_callback: Optional[Callable] = None):
     """
-    Download and build a database from query sequences using Minimap2.
+    Build a minimap2 index from query sequences.
 
     Args:
-        db_data (dict): Contains 'minion', 'projectId', and 'device'.
-        nanocas_location (str): Path to the nanocas working directory.
-        queries (list): List of query dicts with 'file' and 'header'.
+        db_data: Contains 'minion', 'projectId', 'device'.
+        nanocas_location: Path to the project working directory.
+        queries: List of query dicts with 'file', 'header', and optional 'headers'.
+        progress_callback: Optional fn(percent: int, message: str) called for progress updates.
 
     Returns:
-        dict or str: Task result or error code.
+        dict on success, str error code on failure.
     """
+
     def update_progress(percent, message):
-        self.update_state(
-            state="PROGRESS",
-            meta={
-                'percent-done': percent,
-                'message': message,
-                'project_id': db_data.get('projectId')
-            }
-        )
-        logger.debug(f"Progress: {percent}% - {message}")
+        logger.debug(f"Progress: {percent}% — {message}")
+        if progress_callback:
+            try:
+                progress_callback(percent, message)
+            except Exception as e:
+                logger.warning(f"Progress callback failed: {e}")
 
     minion = db_data.get('minion')
     project_id = db_data.get('projectId')
@@ -57,69 +52,86 @@ def int_download_database(self, db_data, nanocas_location, queries):
     db_index_path = os.path.join(database_dir, f"{timestamp}.mmi")
     alertinfo_cfg_path = os.path.join(nanocas_location, 'alertinfo.cfg')
 
-    
     try:
+        # Load alertinfo.cfg written by the socket event handler
         try:
             with open(alertinfo_cfg_path, 'r') as f:
                 alertinfo_cfg = json.load(f)
-                print(f"Loaded alertinfo.cfg: {alertinfo_cfg}")
+            logger.debug(f"Loaded alertinfo.cfg for project {project_id}")
         except (FileNotFoundError, json.JSONDecodeError) as e:
             logger.error(f"Failed to load alertinfo.cfg: {e}")
             return "ER_ALERTINFO"
 
-        # Prepare to write all matching records to input_sequences_path
+        update_progress(5, "Preparing sequence files…")
+
+        # Extract the selected sequences from uploaded FASTA files
+        written_count = 0
         try:
             with open(input_sequences_path, 'w') as out_fasta:
                 for i, query in enumerate(queries):
-                    header = query.get('header')
-                    file_path = query.get('file')
-                    logger.debug(f"Processing query {i+1}/{len(queries)}: {file_path} (header: {header})")
+                    file_path = query.get('file', '')
+                    # Support single header or multiple headers
+                    raw_headers = query.get('headers') or []
+                    single_header = query.get('header')
+                    if single_header and single_header not in raw_headers:
+                        raw_headers.append(single_header)
+                    # ALL means every sequence in the file
+                    use_all = 'ALL' in raw_headers or not raw_headers
+
+                    if not file_path or not os.path.exists(file_path):
+                        logger.warning(f"FASTA file not found: {file_path} — skipping query {i+1}")
+                        continue
+
+                    logger.debug(f"Processing query {i+1}/{len(queries)}: {file_path} headers={raw_headers}")
 
                     try:
-                        found = False
                         for record in SeqIO.parse(file_path, "fasta"):
-                            if record.id == header:
+                            if use_all or record.id in raw_headers:
                                 SeqIO.write(record, out_fasta, "fasta")
-                                found = True
-                                logger.debug(f"Header '{header}' found and written to {input_sequences_path}")
-                                break
-                        if not found:
-                            logger.warning(f"Header '{header}' not found in {file_path}")
+                                written_count += 1
+                                logger.debug(f"Wrote record '{record.id}' to {input_sequences_path}")
                     except Exception as e:
-                        logger.error(f"Failed to process FASTA file {file_path}: {e}")
+                        logger.error(f"Failed to parse FASTA {file_path}: {e}")
 
-                    update_progress(int((i + 1) / len(queries) * 50), f"Processed query {i+1}/{len(queries)}")
+                    update_progress(int(5 + (i + 1) / len(queries) * 45),
+                                    f"Processed query {i+1}/{len(queries)}")
 
         except Exception as e:
-            logger.error(f"Failed to write to input_sequences_path: {e}")
+            logger.error(f"Failed to write combined FASTA: {e}")
             return "ER_INPUTFILE"
 
+        if written_count == 0:
+            logger.error("No sequences written — cannot build index")
+            return "ER_NO_SEQUENCES"
+
+        # Persist device back to alertinfo.cfg
         alertinfo_cfg['device'] = device
         try:
             with open(alertinfo_cfg_path, 'w') as f:
                 json.dump(alertinfo_cfg, f)
         except Exception as e:
-            logger.error(f"Failed to write alertinfo.cfg: {e}")
+            logger.error(f"Failed to update alertinfo.cfg: {e}")
             return "ER_ALERTINFO_WRITE"
 
-        # Build the database index
-        update_progress(98, "Building the index.")
-        index_cmd = [
-            "minimap2", "-x", "map-ont", "-d", db_index_path, input_sequences_path
-        ]
+        # Build minimap2 index
+        update_progress(55, "Building the minimap2 index…")
+        index_cmd = ["minimap2", "-x", "map-ont", "-d", db_index_path, input_sequences_path]
         build_log_path = os.path.join(database_dir, 'building_index.txt')
         try:
             with open(build_log_path, 'w') as log_file:
-                subprocess.run(index_cmd, check=True, stdout=log_file, stderr=log_file)
-            logger.debug("Minimap2 index built successfully.")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Minimap2 failed: {e}")
-            return "ER_MINIMAP2"
+                result = subprocess.run(index_cmd, stdout=log_file, stderr=log_file)
+            if result.returncode != 0:
+                logger.error(f"minimap2 exited with code {result.returncode}. See {build_log_path}")
+                return "ER_MINIMAP2"
+            logger.debug(f"minimap2 index built at {db_index_path}")
+        except FileNotFoundError:
+            logger.error("minimap2 not found — is it installed?")
+            return "ER_MINIMAP2_NOTFOUND"
         except Exception as e:
-            logger.error(f"Unexpected error during Minimap2 execution: {e}")
+            logger.error(f"Unexpected error running minimap2: {e}")
             return "ER_MINIMAP2_UNKNOWN"
 
-        # Create coverage.csv with header
+        # Initialise coverage.csv
         coverage_file = os.path.join(nanocas_location, 'coverage.csv')
         try:
             with open(coverage_file, 'w') as f:
@@ -129,21 +141,24 @@ def int_download_database(self, db_data, nanocas_location, queries):
             logger.error(f"Failed to create coverage.csv: {e}")
             return "ER_COVERAGE"
 
-        update_progress(100, "Database successfully downloaded and built.")
-
-        logger.info("Database build completed successfully")
+        update_progress(100, "Database built successfully.")
+        logger.info(f"Database build completed for project {project_id}")
         return {
             "minion": minion,
             "nanocas_location": nanocas_location,
             "device": device,
         }
-    
+
     finally:
+        # Clean up temp FASTA upload directories
         for query in queries:
-            file_path = query.get('file')
+            file_path = query.get('file', '')
+            if not file_path:
+                continue
             temp_dir = os.path.dirname(file_path)
-            try:
-                shutil.rmtree(temp_dir)
-                logger.debug(f"Removed temporary directory: {temp_dir}")
-            except Exception as e:
-                logger.error(f"Failed to remove temporary directory {temp_dir}: {e}")
+            if temp_dir and os.path.isdir(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.debug(f"Removed temp directory: {temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not remove temp directory {temp_dir}: {e}")
