@@ -215,33 +215,62 @@ def analysis():
             error.append({'message': 'App location was not found'})
     return json.dumps(error)
 
+@main.route('/get_default_nanopore_path', methods=['GET'])
+def get_default_nanopore_path():
+    default_path = os.path.join(NANOCAS_DIR, 'nanopore_data')
+    os.makedirs(default_path, exist_ok=True)
+    return jsonify({'path': default_path})
+
+@main.route('/upload_fastq', methods=['POST'])
+def upload_fastq():
+    target_dir = request.form.get('target_dir', '')
+    if not target_dir:
+        target_dir = os.path.join(NANOCAS_DIR, 'nanopore_data')
+    os.makedirs(target_dir, exist_ok=True)
+    uploaded = []
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+    for file in files:
+        if file.filename and (file.filename.endswith('.fastq') or
+                               file.filename.endswith('.fastq.gz') or
+                               file.filename.endswith('.fq') or
+                               file.filename.endswith('.fq.gz')):
+            safe_name = os.path.basename(file.filename)
+            file_path = os.path.join(target_dir, safe_name)
+            file.save(file_path)
+            uploaded.append(safe_name)
+            logger.debug(f"Uploaded FASTQ file to {file_path}")
+        else:
+            logger.warning(f"Skipped non-FASTQ file: {file.filename}")
+    if not uploaded:
+        return jsonify({'error': 'No valid FASTQ files found (.fastq, .fastq.gz, .fq, .fq.gz)'}), 400
+    return jsonify({'uploaded': uploaded, 'directory': target_dir})
+
 @main.route('/validate_locations', methods=['POST', 'GET'])
 def validate_locations():
     if (request.method == 'POST'):
         minION_location = request.form['minION']
         nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/')
 
-        minION_output_exists = os.path.exists(minION_location)
-        app_output_exists = os.path.exists(nanocas_location) 
+        logger.debug("minION_location = " + minION_location)
 
-        logger.debug("minION_output = " + str(minION_output_exists))
-        logger.debug("app_output_exists = " + str(app_output_exists))
+        # Auto-create nanocas working directory if it doesn't exist
+        os.makedirs(nanocas_location, exist_ok=True)
+        os.chmod(nanocas_location, mode=0o755)
 
-        # create nanocas location if not excistant
-        if not app_output_exists:
-            os.mkdir(nanocas_location) 
-            os.chmod(nanocas_location, mode=0o755)
-            app_output_exists = True
+        # Auto-create the minION data directory if it doesn't exist.
+        # This allows the app to work in any environment (Replit, cloud, local)
+        # without requiring the user to manually pre-create directories.
+        if not os.path.exists(minION_location):
+            try:
+                os.makedirs(minION_location, exist_ok=True)
+                logger.info(f"Auto-created minION directory: {minION_location}")
+            except Exception as e:
+                logger.error(f"Could not create minION directory {minION_location}: {e}")
+                return json.dumps({"code": 1, "message": f"Cannot create minION directory: {e}"})
 
-        if (minION_output_exists and app_output_exists):
-            return json.dumps({"code": 0, "message": "SUCCESS"})
-        else:
-            if not minION_output_exists:
-                return json.dumps([{"code": 1, "message": f"Invalid minION location (err code {minION_output_exists})"}])
-            elif not app_output_exists:
-                return json.dumps([{"code": 1, "message": f"Invalid nanocas location (err code {app_output_exists})"}])
-            else:
-                return json.dumps([{"code": 1, "message": f"Unknown location error (minION_output_exists: {minION_output_exists}, nanocas_location: {app_output_exists}, query_output: {query_output})"}])
+        return json.dumps({"code": 0, "message": "SUCCESS"})
     else:
         return "N/A"
 
