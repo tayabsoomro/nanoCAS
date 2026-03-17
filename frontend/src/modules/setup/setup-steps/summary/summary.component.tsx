@@ -5,7 +5,7 @@ import axios from "axios";
 import { socket } from "../../../../app.component";
 import { IAlertNotifSetupInput } from '../alert-notif-setup/alert-notif-setup.interfaces';
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 const VALIDATION_STATES = {
     NOT_STARTED: 0,

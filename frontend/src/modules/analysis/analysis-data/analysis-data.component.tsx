@@ -7,7 +7,7 @@ import { Dropdown, Modal, Button, OverlayTrigger, Tooltip } from "react-bootstra
 import AlignmentViewer from "./alignment-viewer.component";
 import './analysis-data.component.css';
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 const POLLING_INTERVAL_MS = 10000;
 

@@ -8,10 +8,11 @@ import AnalysisComponent from './modules/analysis/analysis-component';
 import './styles/theme.css';
 import './app.component.css';
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 export const io = require('socket.io-client');
-export const socket = io.connect(API_ENDPOINT, { transports: ['polling'] });
+const socketUrl = API_ENDPOINT || window.location.origin;
+export const socket = io.connect(socketUrl, { transports: ['polling'] });
 
 socket.on('connect', function() {
     socket.send('message', 'User has connected!');

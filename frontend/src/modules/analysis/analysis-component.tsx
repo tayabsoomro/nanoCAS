@@ -6,7 +6,7 @@ import axios from "axios";
 import AnalysisDataComponent from "../analysis/analysis-data/analysis-data.component"
 import {IAnalysisData} from "./analysis-data/analysis-data.interfaces";
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 const initial_analysis_data_state: IAnalysisData = {
     "status": 404,
