@@ -95,34 +95,56 @@ class FileHandler(FileSystemEventHandler):
             self._save_sent_alerts()
 
     def on_moved(self, event):
-        """Handle file move events by processing the new file path."""
-        self.on_any_event(event)
+        """Handle file move events.
+
+        Nanopore sequencers (and many other tools) write files to a temp location
+        then atomically move them to the output directory.  We must use
+        event.dest_path (the final location) — src_path is the temp path that
+        no longer exists by the time the event fires.
+        """
+        self._handle_path(event.dest_path)
 
     def on_any_event(self, event):
-        """Handle any file system event (e.g., new file created or moved)."""
-        src_path = event.src_path
-        with self.processed_files_lock:
-            if src_path in self.processed_files:
-                logger.debug(f"Skipping already processed file: {src_path}")
-                return
-        if not self.wait_for_file_stability(src_path):
-            logger.error(f"File {src_path} is not stable, skipping.")
+        """Handle file created / modified / deleted events."""
+        from watchdog.events import FileMovedEvent
+        # Moved events are handled by on_moved; skip them here to avoid double-processing.
+        if isinstance(event, FileMovedEvent):
             return
-        mtime = os.path.getctime(src_path)
-        timestamp = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-        if self.file_type == 'FASTQ' and src_path.endswith((".fastq", ".fasta", ".fastq.gz", ".fq.gz")):
-            logger.debug(f'Processing FASTQ file: {src_path} with timestamp {timestamp}')
-            self.process_fastq_file(src_path, timestamp)
-        elif self.file_type == 'BAM' and src_path.endswith(".bam"):
-            logger.debug(f'Processing BAM file: {src_path} with timestamp {timestamp}')
-            self.process_bam_file(src_path, timestamp)
-        else:
-            logger.debug(f"Ignoring file {src_path} as it does not match expected type {self.file_type}")
-        # Mark file as processed
-        with self.processed_files_lock:
-            self.processed_files.add(src_path)
-            with open(self.processed_files_path, 'a') as f:
-                f.write(src_path + '\n')
+        self._handle_path(event.src_path)
+
+    def _handle_path(self, file_path: str):
+        """Core dispatch: validate, wait for stability, then process one file path."""
+        try:
+            with self.processed_files_lock:
+                if file_path in self.processed_files:
+                    logger.debug(f"Skipping already processed file: {file_path}")
+                    return
+
+            if not self.wait_for_file_stability(file_path):
+                logger.error(f"File {file_path} is not stable, skipping.")
+                return
+
+            mtime = os.path.getctime(file_path)
+            timestamp = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+            if self.file_type == 'FASTQ' and file_path.endswith((".fastq", ".fasta", ".fastq.gz", ".fq.gz")):
+                logger.debug(f"Processing FASTQ file: {file_path} with timestamp {timestamp}")
+                self.process_fastq_file(file_path, timestamp)
+            elif self.file_type == 'BAM' and file_path.endswith(".bam"):
+                logger.debug(f"Processing BAM file: {file_path} with timestamp {timestamp}")
+                self.process_bam_file(file_path, timestamp)
+            else:
+                logger.debug(f"Ignoring file {file_path} as it does not match expected type {self.file_type}")
+                return  # don't mark non-matching paths as processed
+
+            # Mark as processed only after successful handling
+            with self.processed_files_lock:
+                self.processed_files.add(file_path)
+                with open(self.processed_files_path, 'a') as f:
+                    f.write(file_path + '\n')
+
+        except Exception as e:
+            logger.error(f"Unhandled error processing {file_path}: {e}", exc_info=True)
 
     def wait_for_file_stability(self, file_path, timeout=60, interval=1):
         """Ensure the file is fully written by checking if its size stabilizes."""
@@ -376,18 +398,30 @@ class FileHandler(FileSystemEventHandler):
     def _send_notifications(self, alert_str: str):
         device = self.config.get("device", "")
         alert_notif_config = self.config.get("alertNotifConfig", {})
+
         if device:
-            LinuxNotification.send_notification(device, alert_str)
+            try:
+                LinuxNotification.send_notification(device, alert_str)
+            except Exception as e:
+                logger.error(f"Failed to send Linux notification: {e}")
+
         if alert_notif_config.get("enableEmail", False):
             email_config = alert_notif_config.get("emailConfig", {})
             if all(key in email_config for key in ["sender", "recipient", "smtpServer", "smtpPort", "password"]):
-                send_email("nanoCAS Alert", alert_str, email_config)
+                try:
+                    send_email("nanoCAS Alert", alert_str, email_config)
+                except Exception as e:
+                    logger.error(f"Failed to send email notification: {e}")
             else:
                 logger.error("Email configuration is incomplete.")
+
         if alert_notif_config.get("enableSMS", False):
             sms_recipient = alert_notif_config.get("smsRecipient", "")
             if sms_recipient:
-                send_sms(alert_str, sms_recipient)
+                try:
+                    send_sms(alert_str, sms_recipient)
+                except Exception as e:
+                    logger.error(f"Failed to send SMS notification: {e}")
             else:
                 logger.error("SMS recipient phone number is missing.")
     
@@ -410,13 +444,16 @@ class FileHandler(FileSystemEventHandler):
         """Process existing files in the directory before starting the observer."""
         files = self.get_existing_files(directory)
         for file in files:
-            mtime = os.path.getmtime(file)
-            timestamp = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
-            if self.file_type == 'FASTQ':
-                self.process_fastq_file(file, timestamp)
-            elif self.file_type == 'BAM':
-                self.process_bam_file(file, timestamp)
-            with self.processed_files_lock:
-                self.processed_files.add(file)
-                with open(self.processed_files_path, 'a') as f:
-                    f.write(file + '\n')
+            try:
+                mtime = os.path.getmtime(file)
+                timestamp = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+                if self.file_type == 'FASTQ':
+                    self.process_fastq_file(file, timestamp)
+                elif self.file_type == 'BAM':
+                    self.process_bam_file(file, timestamp)
+                with self.processed_files_lock:
+                    self.processed_files.add(file)
+                    with open(self.processed_files_path, 'a') as f:
+                        f.write(file + '\n')
+            except Exception as e:
+                logger.error(f"Error processing existing file {file}: {e}", exc_info=True)

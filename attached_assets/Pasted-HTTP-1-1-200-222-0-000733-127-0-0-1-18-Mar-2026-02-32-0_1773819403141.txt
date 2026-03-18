@@ -1,0 +1,207 @@
+HTTP/1.1" 200 222 0.000733
+127.0.0.1 - - [18/Mar/2026 02:32:08] "GET /socket.io/?EIO=4&transport=polling&t=Pp_s-i- HTTP/1.1" 200 352 0.000298
+127.0.0.1 - - [18/Mar/2026 02:32:08] "POST /socket.io/?EIO=4&transport=polling&t=Pp_s-j8&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.000565
+127.0.0.1 - - [18/Mar/2026 02:32:08] "GET /socket.io/?EIO=4&transport=polling&t=Pp_s-j8.0&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 265 0.000181
+127.0.0.1 - - [18/Mar/2026 02:32:08] "GET /get_all_analyses HTTP/1.1" 200 233 0.000756
+(64681) accepted ('127.0.0.1', 59879)
+127.0.0.1 - - [18/Mar/2026 02:32:08] "GET /get_analysis_info?uid=undefined HTTP/1.1" 200 287 0.001235
+127.0.0.1 - - [18/Mar/2026 02:32:08] "GET /get_all_analyses HTTP/1.1" 200 233 0.000731
+127.0.0.1 - - [18/Mar/2026 02:32:08] "POST /socket.io/?EIO=4&transport=polling&t=Pp_s-jZ.0&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.000337
+127.0.0.1 - - [18/Mar/2026 02:32:20] "GET /get_default_nanopore_path HTTP/1.1" 200 256 0.000662
+2026-03-18 02:32:27,951 - nanocas - DEBUG - Uploaded GFF file to /Users/tayabsoomro/.nanocas/tmp44cxiyax/gff_file.gff3
+127.0.0.1 - - [18/Mar/2026 02:32:27] "POST /upload_gff HTTP/1.1" 200 273 0.003031
+127.0.0.1 - - [18/Mar/2026 02:32:31] "GET /socket.io/?EIO=4&transport=polling&t=Pp_s-R4&sid=tHfqrZFd0SUA0_-7AAAZ HTTP/1.1" 200 233 24.135287
+127.0.0.1 - - [18/Mar/2026 02:32:33] "GET /socket.io/?EIO=4&transport=polling&t=Pp_s-jZ&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 233 24.964412
+127.0.0.1 - - [18/Mar/2026 02:32:33] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t4qT&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.000170
+2026-03-18 02:32:33,704 - nanocas - DEBUG - Uploaded FASTA file to /Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna
+127.0.0.1 - - [18/Mar/2026 02:32:33] "POST /upload_fasta HTTP/1.1" 200 320 0.008701
+127.0.0.1 - - [18/Mar/2026 02:32:33] "OPTIONS /parse_fasta_headers HTTP/1.1" 200 347 0.000627
+2026-03-18 02:32:33,713 - nanocas - DEBUG - Parsed 1 headers from /Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna
+127.0.0.1 - - [18/Mar/2026 02:32:33] "POST /parse_fasta_headers HTTP/1.1" 200 251 0.003702
+2026-03-18 02:32:49,165 - nanocas - DEBUG - minION_location = /Users/tayabsoomro/.nanocas/nanopore_data
+127.0.0.1 - - [18/Mar/2026 02:32:49] "POST /validate_locations HTTP/1.1" 200 239 0.001893
+127.0.0.1 - - [18/Mar/2026 02:32:49] "POST /get_uid HTTP/1.1" 200 250 0.002033
+127.0.0.1 - - [18/Mar/2026 02:32:49] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8cL&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.000333
+2026-03-18 02:32:49,174 - nanocas - INFO - Locations are valid
+127.0.0.1 - - [18/Mar/2026 02:32:49] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8cN&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.000459
+2026-03-18 02:32:49,176 - nanocas - DEBUG - {'minion': '/Users/tayabsoomro/.nanocas/nanopore_data', 'queries': [{'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}], 'projectId': 'b5b63e04-98c7-4772-82bb-f2ab6b1bfefe', 'device': '', 'gff_file': '/Users/tayabsoomro/.nanocas/tmp44cxiyax/gff_file.gff3', 'alertNotifConfig': {'enableEmail': False, 'enableSMS': True, 'smsRecipient': '13064912039'}}
+2026-03-18 02:32:49,178 - nanocas - DEBUG - Moved GFF file → /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/gff_file.gff
+2026-03-18 02:32:49,179 - nanocas - DEBUG - Wrote alertinfo.cfg for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+2026-03-18 02:32:49,179 - nanocas - DEBUG - Database build thread started for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+2026-03-18 02:32:49,180 - nanocas - DEBUG - Loaded alertinfo.cfg for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+127.0.0.1 - - [18/Mar/2026 02:32:49] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t4qT.0&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 338 15.484434
+2026-03-18 02:32:49,180 - nanocas - DEBUG - Progress: 5% — Preparing sequence files…
+2026-03-18 02:32:49,181 - nanocas - DEBUG - Processing query 1/1: /Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna headers=['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+127.0.0.1 - - [18/Mar/2026 02:32:49] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8cT&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 332 0.000484
+127.0.0.1 - - [18/Mar/2026 02:32:49] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8cT.0&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 200 219 0.007659
+2026-03-18 02:32:49,194 - nanocas - INFO - Creating database...
+2026-03-18 02:32:49,194 - nanocas - DEBUG - Wrote record 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC' to /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.fa
+2026-03-18 02:32:49,194 - nanocas - DEBUG - Progress: 50% — Processed query 1/1
+2026-03-18 02:32:49,195 - nanocas - DEBUG - Progress: 55% — Building the minimap2 index…
+2026-03-18 02:32:49,246 - nanocas - DEBUG - minimap2 index built at /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi
+2026-03-18 02:32:49,246 - nanocas - DEBUG - Created coverage file at /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/coverage.csv
+2026-03-18 02:32:49,246 - nanocas - DEBUG - Progress: 100% — Database built successfully.
+2026-03-18 02:32:49,246 - nanocas - INFO - Database build completed for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+2026-03-18 02:32:49,246 - nanocas - DEBUG - Removed temp directory: /Users/tayabsoomro/.nanocas/tmpfcaxumff
+2026-03-18 02:32:49,247 - nanocas - INFO - Database built for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8-b HTTP/1.1" 200 352 0.000381
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.001537
+127.0.0.1 - - [18/Mar/2026 02:32:50] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8-n&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 219 0.000469
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8-n.0&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 265 0.000147
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 200 0.001838
+127.0.0.1 - - [18/Mar/2026 02:32:50] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8_5&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 219 0.000292
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8_4&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 338 0.001517
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000951
+127.0.0.1 - - [18/Mar/2026 02:32:50] "POST /socket.io/?EIO=4&transport=polling&t=Pp_t8_A&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 219 0.000310
+127.0.0.1 - - [18/Mar/2026 02:32:50] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000727
+127.0.0.1 - - [18/Mar/2026 02:33:00] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 200 0.000926
+127.0.0.1 - - [18/Mar/2026 02:33:00] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000828
+127.0.0.1 - - [18/Mar/2026 02:33:00] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000419
+127.0.0.1 - - [18/Mar/2026 02:33:10] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 200 0.001702
+127.0.0.1 - - [18/Mar/2026 02:33:10] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.001008
+127.0.0.1 - - [18/Mar/2026 02:33:10] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.001078
+127.0.0.1 - - [18/Mar/2026 02:33:15] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8_A.0&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 233 24.963893
+127.0.0.1 - - [18/Mar/2026 02:33:15] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tF5K&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 219 0.000417
+127.0.0.1 - - [18/Mar/2026 02:33:20] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 200 0.000805
+127.0.0.1 - - [18/Mar/2026 02:33:20] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000627
+127.0.0.1 - - [18/Mar/2026 02:33:20] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000964
+127.0.0.1 - - [18/Mar/2026 02:33:24] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tH7Y&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 219 0.000528
+2026-03-18 02:33:24,074 - nanocas - DEBUG - Started file listener for project b5b63e04-98c7-4772-82bb-f2ab6b1bfefe
+127.0.0.1 - - [18/Mar/2026 02:33:24] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tF5L&sid=34REy_eay53u__VWAAAd HTTP/1.1" 200 319 8.337673
+127.0.0.1 - - [18/Mar/2026 02:33:30] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 200 0.001510
+127.0.0.1 - - [18/Mar/2026 02:33:30] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.001413
+127.0.0.1 - - [18/Mar/2026 02:33:30] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000291
+2026-03-18 02:33:33,320 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_1.fastq.gz with timestamp 2026-03-18 02:33:31
+2026-03-18 02:33:33,321 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_1.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_1.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.01x, Breadth Coverage: 0.95%, Read Count: 44
+2026-03-18 02:33:34,110 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.00970116132850063, Breadth 0.9496819291367704
+2026-03-18 02:33:34,110 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:33:34,110 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:33:34,110 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:31
+127.0.0.1 - - [18/Mar/2026 02:33:34] "GET /socket.io/?EIO=4&transport=polling&t=Pp_t8cW&sid=zniM7CB6cylv5v1CAAAb HTTP/1.1" 400 240 45.001026
+2026-03-18 02:33:35,112 - nanocas - DEBUG - Ignoring file /Users/tayabsoomro/.nanocas/nanopore_data as it does not match expected type FASTQ
+2026-03-18 02:33:35,113 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_1.fastq.gz
+2026-03-18 02:33:37,351 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_2.fastq.gz with timestamp 2026-03-18 02:33:36
+2026-03-18 02:33:37,352 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_2.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_2.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.02x, Breadth Coverage: 2.39%, Read Count: 90
+2026-03-18 02:33:38,767 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.024803979584288777, Breadth 2.3872882609660477
+2026-03-18 02:33:38,767 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:33:38,767 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:33:38,767 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:36
+2026-03-18 02:33:38,768 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:33:38,768 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_2.fastq.gz
+127.0.0.1 - - [18/Mar/2026 02:33:40] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 891 0.003243
+127.0.0.1 - - [18/Mar/2026 02:33:40] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000962
+127.0.0.1 - - [18/Mar/2026 02:33:40] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000874
+2026-03-18 02:33:42,377 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_3.fastq.gz with timestamp 2026-03-18 02:33:41
+2026-03-18 02:33:42,378 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_3.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_3.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.04x, Breadth Coverage: 3.62%, Read Count: 134
+2026-03-18 02:33:44,387 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.0382369258081219, Breadth 3.62286411716843
+2026-03-18 02:33:44,387 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:33:44,387 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:33:44,388 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:41
+2026-03-18 02:33:44,389 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:33:44,390 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_3.fastq.gz
+2026-03-18 02:33:48,407 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_4.fastq.gz with timestamp 2026-03-18 02:33:46
+2026-03-18 02:33:48,408 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_4.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_4.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.05x, Breadth Coverage: 4.47%, Read Count: 168
+2026-03-18 02:33:50,743 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.047880760411273024, Breadth 4.473981063688143
+2026-03-18 02:33:50,743 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:33:50,743 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:33:50,744 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:46
+2026-03-18 02:33:50,744 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:33:50,744 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_4.fastq.gz
+127.0.0.1 - - [18/Mar/2026 02:33:50] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 1579 0.000574
+127.0.0.1 - - [18/Mar/2026 02:33:50] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000316
+127.0.0.1 - - [18/Mar/2026 02:33:50] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000416
+2026-03-18 02:33:53,454 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_5.fastq.gz with timestamp 2026-03-18 02:33:51
+2026-03-18 02:33:53,454 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_5.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_5.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.06x, Breadth Coverage: 5.50%, Read Count: 199
+2026-03-18 02:33:56,263 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.05927398476218655, Breadth 5.5017937717286785
+2026-03-18 02:33:56,263 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:33:56,263 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:33:56,263 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:51
+2026-03-18 02:33:56,265 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:33:56,265 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_5.fastq.gz
+127.0.0.1 - - [18/Mar/2026 02:33:56] "GET /get_alignments?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe&reference=CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC HTTP/1.1" 200 15700 0.005091
+2026-03-18 02:33:57,478 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_6.fastq.gz with timestamp 2026-03-18 02:33:56
+2026-03-18 02:33:57,478 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_6.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_6.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.07x, Breadth Coverage: 6.53%, Read Count: 248
+2026-03-18 02:34:00,738 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.07112304904208891, Breadth 6.534599452622235
+2026-03-18 02:34:00,739 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:34:00,739 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:34:00,739 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:33:56
+2026-03-18 02:34:00,740 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:34:00,740 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_6.fastq.gz
+127.0.0.1 - - [18/Mar/2026 02:34:00] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2268 0.000584
+127.0.0.1 - - [18/Mar/2026 02:34:00] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000279
+127.0.0.1 - - [18/Mar/2026 02:34:00] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000431
+2026-03-18 02:34:02,497 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_7.fastq.gz with timestamp 2026-03-18 02:34:01
+2026-03-18 02:34:02,497 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_7.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_7.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.09x, Breadth Coverage: 7.76%, Read Count: 286
+2026-03-18 02:34:06,226 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.08572379613876766, Breadth 7.757138101930616
+2026-03-18 02:34:06,226 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:34:06,226 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:34:06,226 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:34:01
+2026-03-18 02:34:06,232 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:34:06,232 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_7.fastq.gz
+2026-03-18 02:34:07,526 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_8.fastq.gz with timestamp 2026-03-18 02:34:06
+2026-03-18 02:34:07,527 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_8.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_8.fastq.gz_sorted.bam
+127.0.0.1 - - [18/Mar/2026 02:34:09] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tH7i&sid=34REy_eay53u__VWAAAd HTTP/1.1" 400 240 45.000460
+127.0.0.1 - - [18/Mar/2026 02:34:09] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tS6r&sid=34REy_eay53u__VWAAAd HTTP/1.1" 400 265 0.000071
+127.0.0.1 - - [18/Mar/2026 02:34:09] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tSKK HTTP/1.1" 200 352 0.000232
+127.0.0.1 - - [18/Mar/2026 02:34:09] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tSKQ&sid=WM2VqGpUDuYZKyTvAAAf HTTP/1.1" 200 219 0.000432
+127.0.0.1 - - [18/Mar/2026 02:34:09] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tSKR&sid=WM2VqGpUDuYZKyTvAAAf HTTP/1.1" 200 265 0.000063
+127.0.0.1 - - [18/Mar/2026 02:34:09] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tSKU&sid=WM2VqGpUDuYZKyTvAAAf HTTP/1.1" 200 219 0.000091
+127.0.0.1 - - [18/Mar/2026 02:34:10] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2612 0.001284
+127.0.0.1 - - [18/Mar/2026 02:34:10] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.004981
+127.0.0.1 - - [18/Mar/2026 02:34:10] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000360
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.10x, Breadth Coverage: 8.79%, Read Count: 318
+2026-03-18 02:34:11,723 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.09775038834233302, Breadth 8.791423182188032
+2026-03-18 02:34:11,723 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:34:11,723 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:34:11,723 - nanocas - DEBUG - Coverage and read counts recorded at 2026-03-18 02:34:06
+2026-03-18 02:34:11,724 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data
+2026-03-18 02:34:11,724 - nanocas - DEBUG - Skipping already processed file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_8.fastq.gz
+2026-03-18 02:34:12,730 - nanocas - DEBUG - Processing FASTQ file: /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_9.fastq.gz with timestamp 2026-03-18 02:34:11
+2026-03-18 02:34:12,731 - nanocas - DEBUG - Running command: minimap2 -a /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/database/20260318023249.mmi /Users/tayabsoomro/.nanocas/nanopore_data/FAZ56565_pass_505f8b53_67e9fb21_9.fastq.gz | samtools view -b | samtools sort -o /Users/tayabsoomro/.nanocas/b5b63e04-98c7-4772-82bb-f2ab6b1bfefe/minimap2/runs/FAZ56565_pass_505f8b53_67e9fb21_9.fastq.gz_sorted.bam
+Reference: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC, Depth Coverage: 0.11x, Breadth Coverage: 9.77%, Read Count: 352
+2026-03-18 02:34:17,393 - nanocas - DEBUG - Checking alerts for CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC: Depth 0.10845014424143798, Breadth 9.765052888527258
+2026-03-18 02:34:17,394 - nanocas - DEBUG - header_to_query keys: ['CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC']
+2026-03-18 02:34:17,394 - nanocas - DEBUG - {'name': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC', 'file': '/Users/tayabsoomro/.nanocas/tmpfcaxumff/Mesomycoplasma_ovipneumoniae_ATCC_29419_GCA_028885435.1.fna', 'depth_threshold': '0.1', 'current_fold_change': 0, 'alert_on_depth': True, 'alert_on_breadth': False, 'header': 'CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC'}
+2026-03-18 02:34:17,394 - nanocas - CRITICAL - Alert: CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC - CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC depth coverage reached 0.11x (threshold: 0.1x)
+2026-03-18 02:34:17,770 - nanocas - ERROR - Failed to send SMS:
+HTTP Error Your request was:
+
+POST /Accounts/.../Messages.json
+
+Twilio returned the following information:
+
+Unable to create record
+
+More information may be available here:
+
+https://www.twilio.com/docs/errors/403
+
+
+127.0.0.1 - - [18/Mar/2026 02:34:20] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2957 0.001993
+127.0.0.1 - - [18/Mar/2026 02:34:20] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.001037
+127.0.0.1 - - [18/Mar/2026 02:34:20] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000473
+127.0.0.1 - - [18/Mar/2026 02:34:30] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2957 0.002412
+127.0.0.1 - - [18/Mar/2026 02:34:30] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.002333
+127.0.0.1 - - [18/Mar/2026 02:34:30] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000864
+127.0.0.1 - - [18/Mar/2026 02:34:40] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2957 0.001941
+127.0.0.1 - - [18/Mar/2026 02:34:40] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.001065
+127.0.0.1 - - [18/Mar/2026 02:34:40] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000431
+127.0.0.1 - - [18/Mar/2026 02:34:50] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2957 0.002422
+127.0.0.1 - - [18/Mar/2026 02:34:50] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000967
+127.0.0.1 - - [18/Mar/2026 02:34:50] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000531
+127.0.0.1 - - [18/Mar/2026 02:34:54] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tSKT&sid=WM2VqGpUDuYZKyTvAAAf HTTP/1.1" 400 240 45.001667
+127.0.0.1 - - [18/Mar/2026 02:34:54] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tdJc&sid=WM2VqGpUDuYZKyTvAAAf HTTP/1.1" 400 265 0.000275
+127.0.0.1 - - [18/Mar/2026 02:34:56] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tdaO HTTP/1.1" 200 352 0.000286
+127.0.0.1 - - [18/Mar/2026 02:34:56] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tdaR&sid=5ANCxjRpS57Ov6sPAAAh HTTP/1.1" 200 219 0.000363
+127.0.0.1 - - [18/Mar/2026 02:34:56] "GET /socket.io/?EIO=4&transport=polling&t=Pp_tdaS&sid=5ANCxjRpS57Ov6sPAAAh HTTP/1.1" 200 265 0.000125
+127.0.0.1 - - [18/Mar/2026 02:34:56] "POST /socket.io/?EIO=4&transport=polling&t=Pp_tdaV&sid=5ANCxjRpS57Ov6sPAAAh HTTP/1.1" 200 219 0.000154
+127.0.0.1 - - [18/Mar/2026 02:35:00] "GET /get_coverage?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 2957 0.000784
+127.0.0.1 - - [18/Mar/2026 02:35:00] "GET /get_analysis_info?uid=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 905 0.000470
+127.0.0.1 - - [18/Mar/2026 02:35:00] "GET /check_database_status?projectId=b5b63e04-98c7-4772-82bb-f2ab6b1bfefe HTTP/1.1" 200 221 0.000462
