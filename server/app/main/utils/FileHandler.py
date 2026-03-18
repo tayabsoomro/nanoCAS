@@ -9,7 +9,7 @@ import time
 import glob
 import pysam
 import numpy as np
-from threading import Lock
+from threading import Lock, Thread
 from watchdog.events import FileSystemEventHandler
 from app import socketio
 from .LinuxNotification import LinuxNotification
@@ -32,6 +32,7 @@ class FileHandler(FileSystemEventHandler):
         self.coverage_file = os.path.join(self.app_loc, 'coverage.csv')
         self.processed_files_path = os.path.join(self.app_loc, 'processed_files.txt')
         self.processed_files = set()
+        self.in_progress_files = set()
         self.processed_files_lock = Lock()  # Lock for thread-safe access to processed files
         # Track sent alerts to avoid duplicate notifications
         self.sent_alerts_path = os.path.join(self.app_loc, 'sent_alerts.json')
@@ -113,13 +114,20 @@ class FileHandler(FileSystemEventHandler):
         self._handle_path(event.src_path)
 
     def _handle_path(self, file_path: str):
-        """Core dispatch: validate, wait for stability, then process one file path."""
-        try:
-            with self.processed_files_lock:
-                if file_path in self.processed_files:
-                    logger.debug(f"Skipping already processed file: {file_path}")
-                    return
+        """Core dispatch: validate, wait for stability, then process one file path.
 
+        Uses in_progress_files to atomically claim the file before the lengthy
+        processing starts, preventing TOCTOU races when process_existing_files
+        and the watchdog observer run concurrently.
+        """
+        # Atomically check-and-claim: skip if already processed or in progress.
+        with self.processed_files_lock:
+            if file_path in self.processed_files or file_path in self.in_progress_files:
+                logger.debug(f"Skipping already processed/in-progress file: {file_path}")
+                return
+            self.in_progress_files.add(file_path)
+
+        try:
             if not self.wait_for_file_stability(file_path):
                 logger.error(f"File {file_path} is not stable, skipping.")
                 return
@@ -137,14 +145,19 @@ class FileHandler(FileSystemEventHandler):
                 logger.debug(f"Ignoring file {file_path} as it does not match expected type {self.file_type}")
                 return  # don't mark non-matching paths as processed
 
-            # Mark as processed only after successful handling
+            # Promote from in-progress to fully processed
             with self.processed_files_lock:
                 self.processed_files.add(file_path)
+                self.in_progress_files.discard(file_path)
                 with open(self.processed_files_path, 'a') as f:
                     f.write(file_path + '\n')
 
         except Exception as e:
             logger.error(f"Unhandled error processing {file_path}: {e}", exc_info=True)
+        finally:
+            # Always release the in-progress claim so retries are possible
+            with self.processed_files_lock:
+                self.in_progress_files.discard(file_path)
 
     def wait_for_file_stability(self, file_path, timeout=60, interval=1):
         """Ensure the file is fully written by checking if its size stabilizes."""
@@ -346,13 +359,22 @@ class FileHandler(FileSystemEventHandler):
                     f.write(f"{timestamp},{ref},{cov['depth']},{cov['breadth']},{cov['read_count']}\n")
             logger.debug(f"Coverage and read counts recorded at {timestamp}")
 
-            socketio.emit('coverage_update', {
+            emit_payload = {
                 'projectId': self.config.get('projectId', ''),
                 'timestamp': timestamp,
-                'coverage': coverage_data
-            })
+                'coverage': coverage_data,
+            }
+
+            def _emit_coverage(payload):
+                try:
+                    socketio.emit('coverage_update', payload)
+                except Exception as exc:
+                    logger.warning(f"coverage_update emit failed (non-fatal): {exc}")
+
+            Thread(target=_emit_coverage, args=(emit_payload,), daemon=True).start()
+
         except Exception as e:
-            logger.error(f"Error calculating coverage: {e}")
+            logger.error(f"Error calculating coverage: {e}", exc_info=True)
 
     def check_coverage_alerts(self, ref: str, depth_coverage: float, breadth_coverage: float):
         """Check if depth coverage exceeds the threshold and trigger alerts if necessary."""
