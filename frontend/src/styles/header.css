@@ -63,8 +63,13 @@
   transition: width 0.3s ease;
 }
 
-.nano-nav-link:hover::after {
+.nano-nav-link:hover::after,
+.nano-nav-active::after {
   width: 100%;
+}
+
+.nano-nav-active {
+  color: var(--ont-white);
 }
 
 @media (max-width: 768px) {

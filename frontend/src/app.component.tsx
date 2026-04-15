@@ -2,9 +2,9 @@ import React from 'react';
 import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
-import HomeComponent from './modules/home/home.component';
+import ProjectList from './modules/project/ProjectList';
+import ProjectDetail from './modules/project/ProjectDetail';
 import SetupComponent from './modules/setup/setup.component';
-import AnalysisComponent from './modules/analysis/analysis-component';
 import './styles/theme.css';
 import './app.component.css';
 
@@ -29,9 +29,9 @@ const AppComponent = () => {
                 <Header />
                 <main className="nano-main">
                     <Switch>
-                        <Route exact path="/" component={HomeComponent} />
+                        <Route exact path="/" component={ProjectList} />
                         <Route path="/setup" component={SetupComponent} />
-                        <Route path="/analysis/:id?" component={AnalysisComponent} />
+                        <Route path="/project/:id/:tab?" component={ProjectDetail} />
                     </Switch>
                 </main>
                 <Footer />

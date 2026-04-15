@@ -365,14 +365,17 @@ class FileHandler(FileSystemEventHandler):
                 'coverage': coverage_data,
             }
 
-            def _emit_coverage(payload):
+            def _emit_updates(payload):
                 try:
                     socketio.emit('coverage_update', payload)
+                    socketio.emit('run_health_update', {
+                        'projectId': payload.get('projectId', ''),
+                        'timestamp': payload.get('timestamp', ''),
+                    })
                 except Exception as exc:
-                    logger.warning(f"coverage_update emit failed (non-fatal): {exc}")
+                    logger.warning(f"emit failed (non-fatal): {exc}")
 
-            Thread(target=_emit_coverage, args=(emit_payload,), daemon=True).start()
-
+            Thread(target=_emit_updates, args=(emit_payload,), daemon=True).start()
         except Exception as e:
             logger.error(f"Error calculating coverage: {e}", exc_info=True)
 

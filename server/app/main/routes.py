@@ -12,6 +12,7 @@ import pysam
 from flask import session, render_template, request, abort, jsonify
 from . import main
 from .utils import LinuxNotification
+from .utils.directory_scanner import scan_directory, parse_sequencing_summary, get_pore_health
 
 logger = logging.getLogger('nanocas')
 
@@ -455,3 +456,81 @@ def validate_cache(cache_path=CACHE_PATH):
         open(CACHE_PATH, 'a').close()
         logger.warning(f"No cache found! Generated empty cache file...")
     pass
+
+
+def _is_safe_path(base_dir, target_path):
+    real_base = os.path.realpath(base_dir)
+    real_target = os.path.realpath(target_path)
+    return real_target.startswith(real_base + os.sep) or real_target == real_base
+
+
+@main.route('/scan_directory', methods=['POST'])
+def scan_dir_endpoint():
+    data = request.json
+    directory = data.get('directory', '')
+    if not directory:
+        return jsonify({'error': 'directory is required'}), 400
+    home_dir = os.path.expanduser('~')
+    real_dir = os.path.realpath(directory)
+    if not real_dir.startswith(home_dir):
+        return jsonify({'error': 'Access denied: directory must be within home directory'}), 403
+    result = scan_directory(real_dir)
+    return jsonify(result)
+
+
+@main.route('/run_health', methods=['GET'])
+def run_health():
+    project_id = request.args.get('projectId')
+    if not project_id:
+        return jsonify({'error': 'projectId is required'}), 400
+
+    if os.sep in project_id or '..' in project_id:
+        return jsonify({'error': 'Invalid project ID'}), 400
+
+    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
+    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
+        return jsonify({'error': 'Invalid project ID'}), 400
+    if not os.path.isdir(nanocas_path):
+        return jsonify({'error': 'Project not found'}), 404
+
+    alert_cfg_path = os.path.join(nanocas_path, 'alertinfo.cfg')
+    minion_dir = None
+    try:
+        with open(alert_cfg_path, 'r') as f:
+            cfg = json.load(f)
+            minion_dir = cfg.get('minion', '')
+    except Exception:
+        pass
+
+    summary_path = None
+    search_dirs = [nanocas_path]
+    if minion_dir and os.path.isdir(minion_dir):
+        search_dirs.append(minion_dir)
+        parent = os.path.dirname(minion_dir.rstrip('/'))
+        if parent and os.path.isdir(parent):
+            search_dirs.append(parent)
+
+    for search_dir in search_dirs:
+        for root, dirs, files in os.walk(search_dir):
+            for fname in files:
+                if 'sequencing_summary' in fname.lower() and (fname.endswith('.txt') or fname.endswith('.csv')):
+                    summary_path = os.path.join(root, fname)
+                    break
+            if summary_path:
+                break
+        if summary_path:
+            break
+
+    if not summary_path:
+        return jsonify({'error': 'No sequencing summary file found'}), 404
+
+    summary_data = parse_sequencing_summary(summary_path)
+    pore_data = get_pore_health(summary_path)
+
+    return jsonify({
+        'q_scores': summary_data['q_scores'],
+        'read_lengths': summary_data['read_lengths'],
+        'median_q_over_time': summary_data['median_q_over_time'],
+        'total_reads': summary_data['total_reads'],
+        'pore_health': pore_data,
+    })

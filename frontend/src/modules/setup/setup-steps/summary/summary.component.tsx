@@ -97,8 +97,8 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                 socket.emit('download_database', dbInfo, () => {
                     socket.emit('log', "Creating database...", "INFO");
                 });
-                let _url = 'http://' + window.location.hostname + ":" + window.location.port + '/analysis/' + newUID;
-                setSuccess("Creating database... You can view the analysis <a href='" + _url + "'>here</a>");
+                let _url = 'http://' + window.location.hostname + ":" + window.location.port + '/project/' + newUID;
+                setSuccess("Creating database... You can view the project <a href='" + _url + "'>here</a>");
 
                 // Scroll to the top smoothly after success
                 scrollToTop();

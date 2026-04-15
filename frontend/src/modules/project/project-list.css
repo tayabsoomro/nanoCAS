@@ -1,0 +1,111 @@
+.nano-projects-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--ont-spacing-xl) var(--ont-spacing-lg);
+}
+
+.nano-projects-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--ont-spacing-xl);
+}
+
+.nano-projects-title {
+    font-size: 1.75rem;
+    margin-bottom: var(--ont-spacing-xs);
+}
+
+.nano-projects-subtitle {
+    color: var(--ont-dark-gray);
+    margin-bottom: 0;
+}
+
+.nano-projects-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 0;
+    color: var(--ont-dark-gray);
+}
+
+.nano-projects-empty {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: var(--ont-light-gray);
+    border-radius: var(--ont-border-radius-lg);
+}
+
+.nano-empty-icon-large {
+    font-size: 3rem;
+    margin-bottom: var(--ont-spacing-md);
+}
+
+.nano-projects-empty h3 {
+    margin-bottom: var(--ont-spacing-sm);
+}
+
+.nano-projects-empty p {
+    color: var(--ont-dark-gray);
+    margin-bottom: var(--ont-spacing-lg);
+}
+
+.nano-projects-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--ont-spacing-lg);
+}
+
+.nano-project-card {
+    background: var(--ont-white);
+    border: 1px solid var(--ont-gray);
+    border-radius: var(--ont-border-radius-md);
+    overflow: hidden;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.nano-project-card:hover {
+    box-shadow: var(--ont-shadow-md);
+    transform: translateY(-2px);
+}
+
+.nano-project-card-body {
+    padding: var(--ont-spacing-lg);
+}
+
+.nano-project-card-id {
+    font-family: 'Courier New', monospace;
+    font-size: var(--ont-font-size-lg);
+    font-weight: 600;
+    color: var(--ont-primary);
+    margin-bottom: var(--ont-spacing-md);
+}
+
+.nano-project-card-path {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ont-spacing-xs);
+}
+
+.nano-path-label {
+    font-size: var(--ont-font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ont-medium-gray);
+    font-weight: 600;
+}
+
+.nano-path-value {
+    font-size: var(--ont-font-size-sm);
+    color: var(--ont-dark-gray);
+    word-break: break-all;
+}
+
+.nano-project-card-actions {
+    display: flex;
+    gap: var(--ont-spacing-sm);
+    padding: var(--ont-spacing-md) var(--ont-spacing-lg);
+    border-top: 1px solid var(--ont-gray);
+    background: var(--ont-light-gray);
+}
