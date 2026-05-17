@@ -46,7 +46,7 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
         }));
     }, [locationConfig, updateConfig]);
 
-    const handleFastqUpload = async (evt: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFastaUpload = async (evt: React.ChangeEvent<HTMLInputElement>) => {
         const files = evt.target.files;
         if (!files || files.length === 0) return;
         setUploading(true);
@@ -57,13 +57,13 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
         }
         formData.append('target_dir', locationConfig.nanoporeLocation);
         try {
-            const res = await axios.post(`${API_ENDPOINT}/upload_fastq`, formData, {
+            const res = await axios.post(`${API_ENDPOINT}/upload_reference`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             setUploadedFiles(prev => [...prev, ...res.data.uploaded]);
             setUploadStatus(`Successfully uploaded ${res.data.uploaded.length} file(s).`);
         } catch (err: any) {
-            const msg = err?.response?.data?.error || "Upload failed. Ensure files are .fastq, .fastq.gz, .fq, or .fq.gz";
+            const msg = err?.response?.data?.error || "Upload failed. Ensure files are .fasta, .fa, .fna, .fasta.gz, .fa.gz, or .fna.gz";
             setUploadStatus(msg);
         } finally {
             setUploading(false);
@@ -81,16 +81,16 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
             <br/>
             <h4>Nanopore Location</h4>
             <p>
-                Enter the server-side directory where Nanopore FASTQ data is (or will be) stored.
+                Enter the server-side directory where Nanopore data is (or will be) stored.
                 When running locally alongside a sequencer, paste the sequencer output path.
-                In a cloud or browser environment, use the default path and upload FASTQ files below.
+                In a cloud or browser environment, use the default path and upload a reference genome (FASTA) below.
             </p>
             <div className="vspacer-10"/>
             <div className="row ml-auto align-items-center">
                 <div className="col pr-1">
                     <OverlayTrigger
                         placement="top"
-                        overlay={<Tooltip id="tooltip">Server-side path to the directory where FASTQ files are stored</Tooltip>}
+                        overlay={<Tooltip id="tooltip">Server-side path to the directory where Nanopore data is stored</Tooltip>}
                     >
                         <input
                             name="nanoporeLocationText"
@@ -120,21 +120,21 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
             <div className="vspacer-20"/>
             <div className="card border-secondary">
                 <div className="card-header bg-light">
-                    <strong>Upload FASTQ Files</strong>
+                    <strong>Upload Reference Genome (FASTA)</strong>
                     <span className="text-muted small ml-2">(optional — for cloud/browser environments)</span>
                 </div>
                 <div className="card-body">
                     <p className="text-muted small mb-2">
-                        Upload <code>.fastq</code>, <code>.fastq.gz</code>, <code>.fq</code>, or <code>.fq.gz</code> files
+                        Upload a reference genome as <code>.fasta</code>, <code>.fa</code>, <code>.fna</code>, <code>.fasta.gz</code>, <code>.fa.gz</code>, or <code>.fna.gz</code>
                         directly to the directory above. When running alongside a live sequencer, this step is not needed — the sequencer will populate the directory automatically.
                     </p>
                     <input
                         type="file"
                         className="form-control-file"
-                        accept=".fastq,.fastq.gz,.fq,.fq.gz"
+                        accept=".fasta,.fa,.fna,.fasta.gz,.fa.gz,.fna.gz"
                         multiple
                         disabled={uploading || !locationConfig.nanoporeLocation}
-                        onChange={handleFastqUpload}
+                        onChange={handleFastaUpload}
                     />
                     {uploading && (
                         <div className="mt-2 text-primary small">Uploading...</div>

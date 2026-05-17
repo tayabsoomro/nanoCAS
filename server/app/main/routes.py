@@ -228,8 +228,11 @@ def get_default_nanopore_path():
     os.makedirs(default_path, exist_ok=True)
     return jsonify({'path': default_path})
 
-@main.route('/upload_fastq', methods=['POST'])
-def upload_fastq():
+FASTA_EXTENSIONS = ('.fasta', '.fa', '.fna', '.fasta.gz', '.fa.gz', '.fna.gz')
+
+@main.route('/upload_reference', methods=['POST'])
+def upload_reference():
+    """Upload a reference genome (FASTA) to the nanopore data directory."""
     target_dir = request.form.get('target_dir', '')
     if not target_dir:
         target_dir = os.path.join(NANOCAS_DIR, 'nanopore_data')
@@ -239,19 +242,16 @@ def upload_fastq():
     if not files:
         return jsonify({'error': 'No files provided'}), 400
     for file in files:
-        if file.filename and (file.filename.endswith('.fastq') or
-                               file.filename.endswith('.fastq.gz') or
-                               file.filename.endswith('.fq') or
-                               file.filename.endswith('.fq.gz')):
+        if file.filename and file.filename.lower().endswith(FASTA_EXTENSIONS):
             safe_name = os.path.basename(file.filename)
             file_path = os.path.join(target_dir, safe_name)
             file.save(file_path)
             uploaded.append(safe_name)
-            logger.debug(f"Uploaded FASTQ file to {file_path}")
+            logger.debug(f"Uploaded FASTA reference file to {file_path}")
         else:
-            logger.warning(f"Skipped non-FASTQ file: {file.filename}")
+            logger.warning(f"Skipped non-FASTA file: {file.filename}")
     if not uploaded:
-        return jsonify({'error': 'No valid FASTQ files found (.fastq, .fastq.gz, .fq, .fq.gz)'}), 400
+        return jsonify({'error': 'No valid FASTA files found (.fasta, .fa, .fna, .fasta.gz, .fa.gz, .fna.gz)'}), 400
     return jsonify({'uploaded': uploaded, 'directory': target_dir})
 
 @main.route('/validate_locations', methods=['POST', 'GET'])
