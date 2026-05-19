@@ -98,15 +98,33 @@ def scan_directory(directory: str) -> dict:
     return result
 
 
-def parse_sequencing_summary(summary_path: str, max_reads: int = 50000) -> dict:
+def parse_summary_combined(summary_path: str, max_reads: int = 50000) -> dict:
+    """Single-pass parse of a MinKNOW sequencing_summary.{txt,csv}.
+
+    Returns Q-score / read-length stats AND pore-health channel counts in one
+    file walk. The previous two-function approach read the whole file twice
+    (once capped to max_reads, once unbounded for channel counting), which on
+    a multi-GB summary file blocked the eventlet worker for 30+ seconds — long
+    enough to break the browser polling connection and freeze the UI.
+
+    The channel-count is an approximation: it's the set of channels seen among
+    the first `max_reads` rows. For ONT chemistry the active channel set is
+    established within the first few thousand reads, so this is accurate
+    enough for a dashboard. For a precise live channel count, query MinKNOW's
+    AcquisitionService instead of the summary file.
+    """
     result = {
         'q_scores': [],
         'read_lengths': [],
-        'channel_states': {},
-        'channels': set(),
-        'timestamps': [],
+        'channels': [],
         'median_q_over_time': [],
         'total_reads': 0,
+        'pore_health': {
+            'total_channels': 0,
+            'active_channels': 0,
+            'channel_states': {'sequencing': 0, 'unavailable': 0, 'other': 0},
+            'occupancy_rate': 0.0,
+        },
     }
 
     if not summary_path or not os.path.exists(summary_path):
@@ -120,138 +138,82 @@ def parse_sequencing_summary(summary_path: str, max_reads: int = 50000) -> dict:
             f.seek(0)
             reader = csv.DictReader(f, delimiter=delimiter)
             headers = reader.fieldnames or []
-            
-            q_col = None
-            for candidate in ['mean_qscore_template', 'mean_qscore', 'quality_score']:
-                if candidate in headers:
-                    q_col = candidate
-                    break
 
-            len_col = None
-            for candidate in ['sequence_length_template', 'sequence_length', 'read_length']:
-                if candidate in headers:
-                    len_col = candidate
-                    break
-
+            q_col = next((c for c in ['mean_qscore_template', 'mean_qscore', 'quality_score'] if c in headers), None)
+            len_col = next((c for c in ['sequence_length_template', 'sequence_length', 'read_length'] if c in headers), None)
             channel_col = 'channel' if 'channel' in headers else None
-            time_col = None
-            for candidate in ['start_time', 'template_start']:
-                if candidate in headers:
-                    time_col = candidate
-                    break
+            time_col = next((c for c in ['start_time', 'template_start'] if c in headers), None)
 
-            q_scores = []
-            read_lengths = []
-            time_q_pairs = []
+            q_scores: list[float] = []
+            read_lengths: list[int] = []
+            channels: set[int] = set()
+            time_q_pairs: list[tuple[float, float]] = []
             count = 0
 
             for row in reader:
                 if count >= max_reads:
                     break
 
+                q_val = None
                 if q_col and row.get(q_col):
                     try:
-                        q = float(row[q_col])
-                        q_scores.append(q)
+                        q_val = float(row[q_col])
+                        q_scores.append(q_val)
                     except (ValueError, TypeError):
                         pass
 
                 if len_col and row.get(len_col):
                     try:
-                        rl = int(float(row[len_col]))
-                        read_lengths.append(rl)
+                        read_lengths.append(int(float(row[len_col])))
                     except (ValueError, TypeError):
                         pass
 
                 if channel_col and row.get(channel_col):
                     try:
-                        ch = int(row[channel_col])
-                        result['channels'].add(ch)
+                        channels.add(int(row[channel_col]))
                     except (ValueError, TypeError):
                         pass
 
-                if time_col and row.get(time_col) and q_col and row.get(q_col):
+                if time_col and row.get(time_col) and q_val is not None:
                     try:
-                        t = float(row[time_col])
-                        q = float(row[q_col])
-                        time_q_pairs.append((t, q))
+                        time_q_pairs.append((float(row[time_col]), q_val))
                     except (ValueError, TypeError):
                         pass
 
                 count += 1
 
-            result['q_scores'] = q_scores
-            result['read_lengths'] = read_lengths
-            result['total_reads'] = count
-            result['channels'] = list(result['channels'])
+        result['q_scores'] = q_scores
+        result['read_lengths'] = read_lengths
+        result['total_reads'] = count
+        result['channels'] = sorted(channels)
 
-            if time_q_pairs:
-                time_q_pairs.sort(key=lambda x: x[0])
-                bucket_size = max(1, len(time_q_pairs) // 50)
-                medians = []
-                for i in range(0, len(time_q_pairs), bucket_size):
-                    bucket = time_q_pairs[i:i + bucket_size]
-                    bucket_qs = sorted([p[1] for p in bucket])
-                    mid = len(bucket_qs) // 2
-                    median_q = bucket_qs[mid] if len(bucket_qs) % 2 == 1 else (bucket_qs[mid - 1] + bucket_qs[mid]) / 2
-                    avg_time = sum(p[0] for p in bucket) / len(bucket)
-                    medians.append({'time': avg_time, 'median_q': round(median_q, 2)})
-                result['median_q_over_time'] = medians
+        if time_q_pairs:
+            time_q_pairs.sort(key=lambda x: x[0])
+            bucket_size = max(1, len(time_q_pairs) // 50)
+            medians = []
+            for i in range(0, len(time_q_pairs), bucket_size):
+                bucket = time_q_pairs[i:i + bucket_size]
+                bucket_qs = sorted(p[1] for p in bucket)
+                mid = len(bucket_qs) // 2
+                median_q = bucket_qs[mid] if len(bucket_qs) % 2 == 1 else (bucket_qs[mid - 1] + bucket_qs[mid]) / 2
+                avg_time = sum(p[0] for p in bucket) / len(bucket)
+                medians.append({'time': avg_time, 'median_q': round(median_q, 2)})
+            result['median_q_over_time'] = medians
+
+        # Pore-health summary derived from the same channel set we already
+        # collected. The 512 floor is a MinION/Flongle default and is wrong
+        # for GridION (2560) and PromethION (3000/cell) — tracked as a
+        # separate follow-up; live MinKNOW state will replace this entirely.
+        total = max(len(channels), 512)
+        active = len(channels)
+        result['pore_health'] = {
+            'total_channels': total,
+            'active_channels': active,
+            'channel_states': {'sequencing': active, 'unavailable': total - active, 'other': 0},
+            'occupancy_rate': round((active / total) * 100, 1) if total > 0 else 0.0,
+        }
 
     except Exception as e:
         logger.error(f"Error parsing sequencing summary {summary_path}: {e}")
 
     return result
-
-
-def get_pore_health(summary_path: str) -> dict:
-    health = {
-        'total_channels': 0,
-        'active_channels': 0,
-        'channel_states': {
-            'sequencing': 0,
-            'unavailable': 0,
-            'other': 0,
-        },
-        'occupancy_rate': 0.0,
-    }
-
-    if not summary_path or not os.path.exists(summary_path):
-        return health
-
-    try:
-        import csv
-        channels_seen = set()
-        channels_with_reads = set()
-
-        with open(summary_path, 'r') as f:
-            first_line = f.readline()
-            delimiter = '\t' if '\t' in first_line else ','
-            f.seek(0)
-            reader = csv.DictReader(f, delimiter=delimiter)
-            headers = reader.fieldnames or []
-            channel_col = 'channel' if 'channel' in headers else None
-
-            if not channel_col:
-                return health
-
-            for row in reader:
-                try:
-                    ch = int(row[channel_col])
-                    channels_seen.add(ch)
-                    channels_with_reads.add(ch)
-                except (ValueError, TypeError):
-                    pass
-
-        total = max(len(channels_seen), 512)
-        active = len(channels_with_reads)
-        health['total_channels'] = total
-        health['active_channels'] = active
-        health['channel_states']['sequencing'] = active
-        health['channel_states']['unavailable'] = total - active
-        health['occupancy_rate'] = round((active / total) * 100, 1) if total > 0 else 0.0
-
-    except Exception as e:
-        logger.error(f"Error computing pore health from {summary_path}: {e}")
-
-    return health

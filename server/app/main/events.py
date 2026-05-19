@@ -12,7 +12,6 @@ from time import sleep
 from .utils.FileHandler import FileHandler
 from .utils.tasks import int_download_database
 from .utils import LinuxNotification
-from .utils.directory_scanner import parse_sequencing_summary, get_pore_health
 
 from watchdog.observers import Observer
 
