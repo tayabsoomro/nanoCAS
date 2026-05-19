@@ -75,25 +75,27 @@ class FileHandler(FileSystemEventHandler):
                 logger.warning("Could not load sent alerts file, starting fresh")
         return {}
 
-    def _save_sent_alerts(self):
-        """Save sent alerts to JSON file."""
-        with self.sent_alerts_lock:
-            with open(self.sent_alerts_path, 'w') as f:
-                json.dump(self.sent_alerts, f, indent=2)
-
     def _check_if_alert_sent(self, alert_key: str) -> bool:
         """Check if an alert has already been sent for this key."""
         with self.sent_alerts_lock:
             return alert_key in self.sent_alerts
 
     def _mark_alert_as_sent(self, alert_key: str, alert_info: dict):
-        """Mark an alert as sent with timestamp and details."""
+        """Mark an alert as sent with timestamp and details, and persist to disk.
+
+        The JSON write happens while the lock is held to keep the in-memory dict
+        and the on-disk file in sync. The lock must NOT be re-acquired by any
+        helper called from inside this block — threading.Lock is non-reentrant
+        and would deadlock the watchdog dispatcher (which then silently stops
+        processing further filesystem events).
+        """
         with self.sent_alerts_lock:
             self.sent_alerts[alert_key] = {
                 'timestamp': datetime.datetime.now().isoformat(),
                 'info': alert_info
             }
-            self._save_sent_alerts()
+            with open(self.sent_alerts_path, 'w') as f:
+                json.dump(self.sent_alerts, f, indent=2)
 
     def on_moved(self, event):
         """Handle file move events.
