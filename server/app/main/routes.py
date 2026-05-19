@@ -12,12 +12,24 @@ import pysam
 from flask import session, render_template, request, abort, jsonify
 from . import main
 from .utils import LinuxNotification
-from .utils.directory_scanner import scan_directory, parse_sequencing_summary, get_pore_health
+from .utils.directory_scanner import scan_directory, parse_summary_combined
+
+try:
+    from eventlet import tpool
+except ImportError:
+    tpool = None
 
 logger = logging.getLogger('nanocas')
 
 NANOCAS_DIR = os.path.join(os.path.expanduser('~'), '.nanocas')
 CACHE_PATH = os.path.join(os.path.expanduser('~'), '.nanocas/.cache')
+
+# Cache of parsed sequencing-summary results, keyed by absolute file path.
+# Entry: {'size': int, 'mtime_ns': int, 'data': dict}. Invalidated whenever
+# the file's size or mtime changes — so a live, growing summary file will
+# still re-parse, but back-to-back polls within the same write window reuse
+# the result and avoid burning seconds of CSV parsing.
+_RUN_HEALTH_CACHE: dict[str, dict] = {}
 
 @main.route('/version', methods=['GET'])
 def version():
@@ -524,13 +536,31 @@ def run_health():
     if not summary_path:
         return jsonify({'error': 'No sequencing summary file found'}), 404
 
-    summary_data = parse_sequencing_summary(summary_path)
-    pore_data = get_pore_health(summary_path)
+    try:
+        st = os.stat(summary_path)
+    except OSError as e:
+        logger.warning(f"Could not stat sequencing summary {summary_path}: {e}")
+        return jsonify({'error': 'Could not access sequencing summary file'}), 500
 
-    return jsonify({
-        'q_scores': summary_data['q_scores'],
-        'read_lengths': summary_data['read_lengths'],
-        'median_q_over_time': summary_data['median_q_over_time'],
-        'total_reads': summary_data['total_reads'],
-        'pore_health': pore_data,
-    })
+    cached = _RUN_HEALTH_CACHE.get(summary_path)
+    if cached and cached['size'] == st.st_size and cached['mtime_ns'] == st.st_mtime_ns:
+        return jsonify(cached['data'])
+
+    # The parser is CPU + disk bound. Without tpool, parsing a multi-GB
+    # sequencing_summary blocks the eventlet hub for the full duration of
+    # the read — meaning every other request (including the socket.io
+    # polling that keeps the Coverage chart live) stalls. tpool runs the
+    # function on a native thread and yields the greenlet, so concurrent
+    # requests keep flowing.
+    if tpool is not None:
+        data = tpool.execute(parse_summary_combined, summary_path)
+    else:
+        data = parse_summary_combined(summary_path)
+
+    _RUN_HEALTH_CACHE[summary_path] = {
+        'size': st.st_size,
+        'mtime_ns': st.st_mtime_ns,
+        'data': data,
+    }
+
+    return jsonify(data)
