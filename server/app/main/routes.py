@@ -12,6 +12,7 @@ import pysam
 from flask import session, render_template, request, abort, jsonify
 from . import main
 from .utils import LinuxNotification
+from .utils.directory_scanner import scan_directory, parse_sequencing_summary, get_pore_health
 
 logger = logging.getLogger('nanocas')
 
@@ -89,11 +90,17 @@ def get_all_analyses():
         validate_cache()
         with open(CACHE_PATH, 'r') as cache_fs:
             for line in cache_fs:
-                [projectId, minion_dir, NANOCAS_DIR] = line.split("\t")
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                projectId, minion_dir, nanocas_dir = parts[0], parts[1], parts[2]
                 data.append({
-                    "id"        : projectId,
-                    "minion_dir": minion_dir,
-                    "NANOCAS_DIR" : NANOCAS_DIR
+                    "id"         : projectId,
+                    "minion_dir" : minion_dir,
+                    "nanocas_dir": nanocas_dir,
                 })
 
         return json.dumps({
@@ -215,33 +222,62 @@ def analysis():
             error.append({'message': 'App location was not found'})
     return json.dumps(error)
 
+@main.route('/get_default_nanopore_path', methods=['GET'])
+def get_default_nanopore_path():
+    default_path = os.path.join(NANOCAS_DIR, 'nanopore_data')
+    os.makedirs(default_path, exist_ok=True)
+    return jsonify({'path': default_path})
+
+FASTA_EXTENSIONS = ('.fasta', '.fa', '.fna', '.fasta.gz', '.fa.gz', '.fna.gz')
+
+@main.route('/upload_reference', methods=['POST'])
+def upload_reference():
+    """Upload a reference genome (FASTA) to the nanopore data directory."""
+    target_dir = request.form.get('target_dir', '')
+    if not target_dir:
+        target_dir = os.path.join(NANOCAS_DIR, 'nanopore_data')
+    os.makedirs(target_dir, exist_ok=True)
+    uploaded = []
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+    for file in files:
+        if file.filename and file.filename.lower().endswith(FASTA_EXTENSIONS):
+            safe_name = os.path.basename(file.filename)
+            file_path = os.path.join(target_dir, safe_name)
+            file.save(file_path)
+            uploaded.append(safe_name)
+            logger.debug(f"Uploaded FASTA reference file to {file_path}")
+        else:
+            logger.warning(f"Skipped non-FASTA file: {file.filename}")
+    if not uploaded:
+        return jsonify({'error': 'No valid FASTA files found (.fasta, .fa, .fna, .fasta.gz, .fa.gz, .fna.gz)'}), 400
+    return jsonify({'uploaded': uploaded, 'directory': target_dir})
+
 @main.route('/validate_locations', methods=['POST', 'GET'])
 def validate_locations():
     if (request.method == 'POST'):
         minION_location = request.form['minION']
         nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/')
 
-        minION_output_exists = os.path.exists(minION_location)
-        app_output_exists = os.path.exists(nanocas_location) 
+        logger.debug("minION_location = " + minION_location)
 
-        logger.debug("minION_output = " + str(minION_output_exists))
-        logger.debug("app_output_exists = " + str(app_output_exists))
+        # Auto-create nanocas working directory if it doesn't exist
+        os.makedirs(nanocas_location, exist_ok=True)
+        os.chmod(nanocas_location, mode=0o755)
 
-        # create nanocas location if not excistant
-        if not app_output_exists:
-            os.mkdir(nanocas_location) 
-            os.chmod(nanocas_location, mode=0o755)
-            app_output_exists = True
+        # Auto-create the minION data directory if it doesn't exist.
+        # This allows the app to work in any environment (Replit, cloud, local)
+        # without requiring the user to manually pre-create directories.
+        if not os.path.exists(minION_location):
+            try:
+                os.makedirs(minION_location, exist_ok=True)
+                logger.info(f"Auto-created minION directory: {minION_location}")
+            except Exception as e:
+                logger.error(f"Could not create minION directory {minION_location}: {e}")
+                return json.dumps({"code": 1, "message": f"Cannot create minION directory: {e}"})
 
-        if (minION_output_exists and app_output_exists):
-            return json.dumps({"code": 0, "message": "SUCCESS"})
-        else:
-            if not minION_output_exists:
-                return json.dumps([{"code": 1, "message": f"Invalid minION location (err code {minION_output_exists})"}])
-            elif not app_output_exists:
-                return json.dumps([{"code": 1, "message": f"Invalid nanocas location (err code {app_output_exists})"}])
-            else:
-                return json.dumps([{"code": 1, "message": f"Unknown location error (minION_output_exists: {minION_output_exists}, nanocas_location: {app_output_exists}, query_output: {query_output})"}])
+        return json.dumps({"code": 0, "message": "SUCCESS"})
     else:
         return "N/A"
 
@@ -420,3 +456,81 @@ def validate_cache(cache_path=CACHE_PATH):
         open(CACHE_PATH, 'a').close()
         logger.warning(f"No cache found! Generated empty cache file...")
     pass
+
+
+def _is_safe_path(base_dir, target_path):
+    real_base = os.path.realpath(base_dir)
+    real_target = os.path.realpath(target_path)
+    return real_target.startswith(real_base + os.sep) or real_target == real_base
+
+
+@main.route('/scan_directory', methods=['POST'])
+def scan_dir_endpoint():
+    data = request.json
+    directory = data.get('directory', '')
+    if not directory:
+        return jsonify({'error': 'directory is required'}), 400
+    home_dir = os.path.expanduser('~')
+    real_dir = os.path.realpath(directory)
+    if not real_dir.startswith(home_dir):
+        return jsonify({'error': 'Access denied: directory must be within home directory'}), 403
+    result = scan_directory(real_dir)
+    return jsonify(result)
+
+
+@main.route('/run_health', methods=['GET'])
+def run_health():
+    project_id = request.args.get('projectId')
+    if not project_id:
+        return jsonify({'error': 'projectId is required'}), 400
+
+    if os.sep in project_id or '..' in project_id:
+        return jsonify({'error': 'Invalid project ID'}), 400
+
+    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
+    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
+        return jsonify({'error': 'Invalid project ID'}), 400
+    if not os.path.isdir(nanocas_path):
+        return jsonify({'error': 'Project not found'}), 404
+
+    alert_cfg_path = os.path.join(nanocas_path, 'alertinfo.cfg')
+    minion_dir = None
+    try:
+        with open(alert_cfg_path, 'r') as f:
+            cfg = json.load(f)
+            minion_dir = cfg.get('minion', '')
+    except Exception:
+        pass
+
+    summary_path = None
+    search_dirs = [nanocas_path]
+    if minion_dir and os.path.isdir(minion_dir):
+        search_dirs.append(minion_dir)
+        parent = os.path.dirname(minion_dir.rstrip('/'))
+        if parent and os.path.isdir(parent):
+            search_dirs.append(parent)
+
+    for search_dir in search_dirs:
+        for root, dirs, files in os.walk(search_dir):
+            for fname in files:
+                if 'sequencing_summary' in fname.lower() and (fname.endswith('.txt') or fname.endswith('.csv')):
+                    summary_path = os.path.join(root, fname)
+                    break
+            if summary_path:
+                break
+        if summary_path:
+            break
+
+    if not summary_path:
+        return jsonify({'error': 'No sequencing summary file found'}), 404
+
+    summary_data = parse_sequencing_summary(summary_path)
+    pore_data = get_pore_health(summary_path)
+
+    return jsonify({
+        'q_scores': summary_data['q_scores'],
+        'read_lengths': summary_data['read_lengths'],
+        'median_q_over_time': summary_data['median_q_over_time'],
+        'total_reads': summary_data['total_reads'],
+        'pore_health': pore_data,
+    })

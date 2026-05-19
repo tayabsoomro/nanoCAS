@@ -5,7 +5,7 @@ import { IQuery } from "./alert-data-setup.interfaces";
 import { IAlertData } from "./alert-data-setup.interfaces";
 import axios from "axios";
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 type IKeys = "name" | "file" | "threshold" | "alert";
 

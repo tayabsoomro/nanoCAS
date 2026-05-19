@@ -27,3 +27,5 @@ def send_sms(body, recipient_phone):
         logger.info(f"SMS sent successfully: {message.sid}")
     except TwilioRestException as e:
         logger.error(f"Failed to send SMS: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error sending SMS: {e}")

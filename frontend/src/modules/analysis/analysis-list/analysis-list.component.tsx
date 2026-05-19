@@ -3,7 +3,7 @@ import {ListGroup} from "react-bootstrap";
 import {Link} from "react-router-dom";
 import axios from "axios";
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 type IAnalysisMetaData = {
     id: string,

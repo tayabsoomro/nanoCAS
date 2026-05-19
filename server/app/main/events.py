@@ -1,24 +1,22 @@
-from flask import url_for, session
-from flask_socketio import emit, send
+from flask import session
+from flask_socketio import emit
 from .. import socketio
 
-from threading import Thread, Event
+from threading import Thread
 
-# for download_database
-import os, shutil, subprocess
+import os
+import shutil
+import subprocess
 from time import sleep
 
-# for run_fastq_watcher
 from .utils.FileHandler import FileHandler
 from .utils.tasks import int_download_database
 from .utils import LinuxNotification
+from .utils.directory_scanner import parse_sequencing_summary, get_pore_health
 
-# for run_fasq_watcher
 from watchdog.observers import Observer
 
 import json
-
-# for Logger
 import logging
 
 logger = logging.getLogger('nanocas')
@@ -27,7 +25,9 @@ logger = logging.getLogger('nanocas')
 observers = {}
 
 
+# ---------------------------------------------------------------------------
 # HELPER FUNCTIONS
+# ---------------------------------------------------------------------------
 
 def run_fastq_watcher(app_loc, minion_loc):
     logger.debug(f"Starting file watcher on {app_loc}")
@@ -38,34 +38,39 @@ def run_fastq_watcher(app_loc, minion_loc):
     try:
         while True:
             sleep(1)
-    except:
+    except Exception:
         observer.stop()
 
 
+# ---------------------------------------------------------------------------
+# SOCKET EVENTS
+# ---------------------------------------------------------------------------
+
 @socketio.on('connect', namespace="/analysis")
 def analysis_connected():
-    logger.debug("Debug: Unused analysis connection made.")
+    logger.debug("Unused analysis connection made.")
 
 
 @socketio.on('disconnect', namespace="/analysis")
 def analysis_disconnected():
-    # delete the analysis_busy file
-    subprocess.call(['rm', session.get('nanocas_location') + 'analysis_busy'])
-    logger.debug("Debug: Disconnect from analysis connection.")
+    nanocas_loc = session.get('nanocas_location', '')
+    if nanocas_loc:
+        busy_file = os.path.join(nanocas_loc, 'analysis_busy')
+        try:
+            os.remove(busy_file)
+        except FileNotFoundError:
+            pass
+    logger.debug("Disconnect from analysis connection.")
 
 
 @socketio.on('remove_analysis')
 def remove_analysis(data):
     project_id = data['projectId']
-    # Path where analysis data is stored
-    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/', project_id)
+    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas', project_id)
 
     if os.path.exists(nanocas_location):
-        # Delete the analysis directory
         shutil.rmtree(nanocas_location)
-
-        # Update a cache file (if applicable)
-        cache_path = os.path.join(os.path.expanduser('~'), '.nanocas/.cache')
+        cache_path = os.path.join(os.path.expanduser('~'), '.nanocas', '.cache')
         if os.path.exists(cache_path):
             with open(cache_path, 'r+') as cache_fs:
                 lines = cache_fs.readlines()
@@ -74,24 +79,22 @@ def remove_analysis(data):
                     if project_id not in line:
                         cache_fs.write(line)
                 cache_fs.truncate()
-
-        # Notify the client of success
         emit('analysis_removed', {'success': True, 'message': 'Analysis removed successfully'})
     else:
-        # Notify the client of failure
         emit('analysis_removed', {'success': False, 'message': 'Analysis not found'})
+
 
 @socketio.on('start_fastq_file_listener')
 def start_fastq_file_listener(data):
     project_id = data['projectId']
-    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/' + project_id + '/')
+    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas', project_id) + os.sep
     minion_location = data['minion_location']
 
     if project_id not in observers:
         try:
             event_handler = FileHandler(nanocas_location)
-            # Start processing existing files in a separate thread
             thread = Thread(target=event_handler.process_existing_files, args=(minion_location,))
+            thread.daemon = True
             thread.start()
             observer = Observer()
             observer.schedule(event_handler, path=minion_location, recursive=False)
@@ -104,7 +107,7 @@ def start_fastq_file_listener(data):
             logger.error(f"Error starting file listener for project {project_id}: {e}")
     else:
         emit('fastq_file_listener_already_running', {'projectId': project_id})
-        logger.debug(f"File listener already running for project {project_id}")
+
 
 @socketio.on('stop_fastq_file_listener')
 def stop_fastq_file_listener(data):
@@ -116,13 +119,11 @@ def stop_fastq_file_listener(data):
             observer.join()
             del observers[project_id]
             emit('fastq_file_listener_stopped', {'projectId': project_id})
-            logger.debug(f"Stopped file listener for project {project_id}")
         except Exception as e:
             emit('fastq_file_listener_error', {'projectId': project_id, 'error': str(e)})
-            logger.error(f"Error stopping file listener for project {project_id}: {e}")
     else:
         emit('fastq_file_listener_not_running', {'projectId': project_id})
-        logger.debug(f"No file listener running for project {project_id}")
+
 
 @socketio.on('check_fastq_file_listener')
 def check_fastq_file_listener(data):
@@ -130,104 +131,143 @@ def check_fastq_file_listener(data):
     is_running = project_id in observers
     emit('fastq_file_listener_status', {'projectId': project_id, 'is_running': is_running})
 
-def on_raw_message(message):
-    status = message['status']
-    if status == "PROGRESS":
 
-        percent_done = message['result']['percent-done']
-        status_message = message['result']['message']
-        project_id = message['result']['project_id']
+# ---------------------------------------------------------------------------
+# DATABASE CREATION — runs in a background thread to avoid blocking the
+# socket event loop.  Progress is reported via socketio.emit so the client
+# receives live updates without needing Celery or Redis.
+# ---------------------------------------------------------------------------
 
-        emit(
+def _build_database_task(dbinfo, nanocas_location, queries, sid):
+    """Background thread: build the minimap2 index and emit progress to the client."""
+
+    def progress_callback(percent, message):
+        socketio.emit(
             'download_database_status',
-            {'percent_done': percent_done, 'status_message': status_message}
+            {'percent_done': percent, 'status_message': message},
+            to=sid
         )
 
-        if percent_done == 100:
-            minion = message['result']['minion']
-            nanocas_location = message['result']['nanocas_location']
+    try:
+        result = int_download_database(
+            db_data=dbinfo,
+            nanocas_location=nanocas_location,
+            queries=queries,
+            progress_callback=progress_callback,
+        )
 
-            logger.debug("Debug: Starting the MinION Listener")
-            # start_fastq_file_listener(nanocas_location, minion)
-
-    if status == "SUCCESS":
-        minion = message['result']['minion']
-        nanocas_location = message['result']['nanocas_location']
-        logger.debug(f"Debug: MinION Location: {minion}, nanocas Location: {nanocas_location}")
+        if isinstance(result, dict):
+            logger.info(f"Database built for project {dbinfo.get('projectId')}")
+            socketio.emit(
+                'download_database_complete',
+                {'success': True, 'projectId': dbinfo.get('projectId')},
+                to=sid
+            )
+        else:
+            error_code = result or 'UNKNOWN'
+            logger.error(f"Database build failed with code: {error_code}")
+            socketio.emit(
+                'download_database_complete',
+                {'success': False, 'error': error_code, 'projectId': dbinfo.get('projectId')},
+                to=sid
+            )
+    except Exception as e:
+        logger.error(f"Unhandled error during database build: {e}", exc_info=True)
+        socketio.emit(
+            'download_database_complete',
+            {'success': False, 'error': str(e), 'projectId': dbinfo.get('projectId')},
+            to=sid
+        )
 
 
 @socketio.on('download_database', namespace="/")
 def download_database(dbinfo):
-    project_id = dbinfo["projectId"]
+    from flask import request as flask_request
+    sid = flask_request.sid
+
+    project_id = dbinfo.get("projectId")
+    if not project_id:
+        emit('download_database_complete', {'success': False, 'error': 'Missing projectId'})
+        return
+
     device = dbinfo.get("device", "")
-    file_type = dbinfo.get("fileType", "FASTQ")  # Add fileType
-    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/' + project_id + '/')
+    file_type = dbinfo.get("fileType", "FASTQ")
+    nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas', project_id) + os.sep
 
-    if not os.path.exists(nanocas_location):
-        os.makedirs(nanocas_location)
-    else:
+    # (Re)create the project directory
+    if os.path.exists(nanocas_location):
         shutil.rmtree(nanocas_location)
-        os.makedirs(nanocas_location)
+    os.makedirs(nanocas_location, exist_ok=True)
 
+    # Move the GFF file from the temp upload directory into the project dir
     gff_file_temp = dbinfo.get("gff_file")
-
-    gff_file_final = None
     if gff_file_temp and os.path.exists(gff_file_temp):
         gff_file_final = os.path.join(nanocas_location, 'gff_file.gff')
         shutil.move(gff_file_temp, gff_file_final)
-        # Update dbinfo with the new GFF file path
         dbinfo["gff_file"] = gff_file_final
-        logger.debug(f"Moved GFF file from {gff_file_temp} to {gff_file_final}")
-
-        # Remove the temp directory that held the gff file
+        logger.debug(f"Moved GFF file → {gff_file_final}")
+        # Clean up temp dir
         temp_dir = os.path.dirname(gff_file_temp)
         try:
-            if os.path.isdir(temp_dir) and not os.listdir(temp_dir):
-                os.rmdir(temp_dir)
-                logger.debug(f"Removed empty temp directory {temp_dir}")
-            elif os.path.isdir(temp_dir):
+            if os.path.isdir(temp_dir):
                 shutil.rmtree(temp_dir)
-                logger.debug(f"Removed temp directory {temp_dir} and its contents")
         except Exception as e:
-            logger.warning(f"Failed to remove temp directory {temp_dir}: {e}")
-    else:
-        if gff_file_temp:
-            logger.warning(f"GFF file {gff_file_temp} does not exist; skipping move.")
+            logger.warning(f"Could not remove GFF temp dir {temp_dir}: {e}")
+    elif gff_file_temp:
+        logger.warning(f"GFF file {gff_file_temp} not found; skipping.")
 
-    queries = dbinfo["queries"]
-    dbinfo["fileType"] = file_type  # Ensure fileType is included
-    print(dbinfo)
-    with open(nanocas_location + 'alertinfo.cfg', 'w+') as alert_config_file:
-        alert_config_file.write(json.dumps(dbinfo))
+    dbinfo["fileType"] = file_type
 
-    # Send notification only if device is specified and not empty
+    # Write alertinfo.cfg immediately so the background task can read it
+    alertinfo_path = os.path.join(nanocas_location, 'alertinfo.cfg')
+    with open(alertinfo_path, 'w') as f:
+        json.dump(dbinfo, f)
+    logger.debug(f"Wrote alertinfo.cfg for project {project_id}")
+
+    # Notify the device if one is configured
     if device:
-        alert_str = f"You can find the nanocas alert page for {project_id} at http://localhost:3000/analysis/{project_id}"
-        LinuxNotification.send_notification(device, alert_str, severity=1)
+        try:
+            alert_str = (
+                f"nanoCAS database is being built for project {project_id}. "
+                f"You can view the analysis at /analysis/{project_id}"
+            )
+            LinuxNotification.send_notification(device, alert_str, severity=1)
+        except Exception as e:
+            logger.warning(f"Device notification failed: {e}")
 
-    # Rest of the function remains unchanged
-    os.umask(0)
+    # Create required subdirectories
     os.makedirs(os.path.join(nanocas_location, 'database'), mode=0o777, exist_ok=True)
-    os.umask(0)
-    os.makedirs(nanocas_location + 'minimap2/runs', mode=0o777, exist_ok=True)
-    res = int_download_database.apply_async(args=[dbinfo, nanocas_location, queries])
-    res.get(on_message=on_raw_message, propagate=False)
-    
-    
-    
-   
+    os.makedirs(os.path.join(nanocas_location, 'minimap2', 'runs'), mode=0o777, exist_ok=True)
+
+    queries = dbinfo.get("queries", [])
+
+    # Acknowledge immediately so the client knows the build has started
+    emit('download_database_status', {'percent_done': 0, 'status_message': 'Starting database build…'})
+
+    # Run the heavy work in a background thread
+    thread = Thread(
+        target=_build_database_task,
+        args=(dbinfo, nanocas_location, queries, sid),
+        daemon=True,
+    )
+    thread.start()
+    logger.debug(f"Database build thread started for project {project_id}")
 
 
+# ---------------------------------------------------------------------------
 # LOGGER HOOKS
+# ---------------------------------------------------------------------------
+
 @socketio.on('log')
 def log(msg, lvl):
-    if str(lvl).upper() == "INFO":
+    lvl_upper = str(lvl).upper()
+    if lvl_upper == "INFO":
         logger.info(msg)
-    elif str(lvl).upper() == "DEBUG":
+    elif lvl_upper == "DEBUG":
         logger.debug(msg)
-    elif str(lvl).upper() == "WARNING":
+    elif lvl_upper == "WARNING":
         logger.warning(msg)
-    elif str(lvl).upper() == "ERROR":
+    elif lvl_upper == "ERROR":
         logger.error(msg)
-    elif str(lvl).upper() == "CRITICAL":
+    elif lvl_upper == "CRITICAL":
         logger.critical(msg)

@@ -2,16 +2,17 @@ import React from 'react';
 import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
-import HomeComponent from './modules/home/home.component';
+import ProjectList from './modules/project/ProjectList';
+import ProjectDetail from './modules/project/ProjectDetail';
 import SetupComponent from './modules/setup/setup.component';
-import AnalysisComponent from './modules/analysis/analysis-component';
 import './styles/theme.css';
 import './app.component.css';
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT || 'http://localhost:5007';
+const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 export const io = require('socket.io-client');
-export const socket = io.connect(API_ENDPOINT, { transports: ['polling'] });
+const socketUrl = API_ENDPOINT || window.location.origin;
+export const socket = io.connect(socketUrl, { transports: ['polling'] });
 
 socket.on('connect', function() {
     socket.send('message', 'User has connected!');
@@ -28,9 +29,9 @@ const AppComponent = () => {
                 <Header />
                 <main className="nano-main">
                     <Switch>
-                        <Route exact path="/" component={HomeComponent} />
+                        <Route exact path="/" component={ProjectList} />
                         <Route path="/setup" component={SetupComponent} />
-                        <Route path="/analysis/:id?" component={AnalysisComponent} />
+                        <Route path="/project/:id/:tab?" component={ProjectDetail} />
                     </Switch>
                 </main>
                 <Footer />
