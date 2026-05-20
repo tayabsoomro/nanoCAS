@@ -1,12 +1,21 @@
 import os
 from twilio.rest import Client
 from twilio.base.exceptions import TwilioRestException
+from twilio.http.http_client import TwilioHttpClient
 import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger('nanocas')
+
+# Twilio's default http_client uses a requests.Session with no timeout,
+# so a stalled Twilio API would hang the watchdog dispatcher indefinitely.
+# Module-level singleton so we don't pay the requests.Session setup cost
+# on every alert. See LOGBOOK §4.2.
+_TWILIO_TIMEOUT_SECONDS = 30
+_TWILIO_HTTP_CLIENT = TwilioHttpClient(timeout=_TWILIO_TIMEOUT_SECONDS)
+
 
 def send_sms(body, recipient_phone):
     account_sid = os.getenv('TWILIO_ACCOUNT_SID')
@@ -18,7 +27,7 @@ def send_sms(body, recipient_phone):
         return
 
     try:
-        client = Client(account_sid, auth_token)
+        client = Client(account_sid, auth_token, http_client=_TWILIO_HTTP_CLIENT)
         message = client.messages.create(
             body=body,
             from_=twilio_phone,
