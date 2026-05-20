@@ -74,6 +74,7 @@ class FileHandler(FileSystemEventHandler):
         # O(n^2). See LOGBOOK section 4.1 for the full diagnosis.
         self.coverage_acc = CoverageAccumulator(self.app_loc)
         self._migrate_legacy_merged_bam_if_needed()
+        self._repair_unindexed_runs_if_needed()
 
     def _migrate_legacy_merged_bam_if_needed(self):
         """One-shot bootstrap: if a project predates this refactor it has
@@ -109,6 +110,60 @@ class FileHandler(FileSystemEventHandler):
             logger.info("Legacy merged.bam migrated successfully")
         except Exception as e:
             logger.error(f"Legacy migration failed (continuing with empty accumulator): {e}", exc_info=True)
+
+    def _repair_unindexed_runs_if_needed(self):
+        """Recover projects affected by the indexing regression that
+        shipped briefly in the PR-#9 accumulator rollout.
+
+        That version produced per-FASTQ sorted BAMs but didn't index
+        them, so the accumulator's `pysam.count_coverage` call failed
+        on every batch and `coverage_state.npz` stayed empty. The fix
+        lives in `process_fastq_file`, but it only helps NEW batches —
+        files already aligned into `runs/` would otherwise be stranded.
+
+        On startup, scan `runs/` for any `_sorted.bam` missing a
+        `.bai`. For each one: write the index, then fold the BAM into
+        the accumulator (idempotent because the accumulator is empty if
+        the original processing failed, and the only path that updates
+        it later is `_handle_path`, which checks `processed_files.txt`
+        and skips already-processed paths).
+        """
+        if not os.path.isdir(self.runs_dir):
+            return
+
+        candidates = []
+        for fname in os.listdir(self.runs_dir):
+            if not fname.endswith('_sorted.bam'):
+                continue
+            bam_path = os.path.join(self.runs_dir, fname)
+            if os.path.exists(bam_path + '.bai'):
+                continue
+            candidates.append(bam_path)
+        if not candidates:
+            return
+
+        # Only re-fold into the accumulator if it looks empty (i.e. the
+        # regression actually hit). If there's existing state we don't
+        # know which BAMs are already counted, and double-counting would
+        # silently inflate the depth — better to leave the user's data
+        # alone in that case and just index for future operations.
+        is_empty_accumulator = len(self.coverage_acc.refs()) == 0
+
+        logger.info(
+            f"Repairing {len(candidates)} un-indexed per-FASTQ BAM(s) in {self.runs_dir} "
+            f"(refold into accumulator: {is_empty_accumulator})"
+        )
+        for bam_path in candidates:
+            if not self._ensure_bam_index(bam_path):
+                continue
+            if is_empty_accumulator:
+                try:
+                    with pysam.AlignmentFile(bam_path, 'rb') as bam:
+                        self.coverage_acc.update_from_bam(bam)
+                except Exception as e:
+                    logger.error(f"Could not fold {bam_path} into accumulator during repair: {e}")
+        if is_empty_accumulator and candidates:
+            self.coverage_acc.save()
 
     def _load_sent_alerts(self):
         """Load previously sent alerts from JSON file."""
@@ -238,10 +293,20 @@ class FileHandler(FileSystemEventHandler):
         resulting per-batch coverage into the rolling accumulator.
 
         The per-FASTQ sorted BAM is kept on disk under `minimap2/runs/`
-        so the lazy-merge helper in routes.py can rebuild a single
-        merged BAM on demand for the alignment viewer. Per-batch cost
-        is O(reads in this batch); the previous design re-merged AND
-        re-sorted the cumulative BAM here, which was O(cumulative).
+        AND indexed (a `.bai` sits next to it). pysam's
+        `count_coverage` internally calls `fetch`, which requires the
+        index — without it the call raises `fetch called on bamfile
+        without index` and the entire batch's coverage is silently
+        dropped. The lazy-merge helper in routes.py doesn't strictly
+        need the per-input `.bai`s (samtools merge of sorted inputs
+        works without them), but the accumulator path does, so we
+        index unconditionally.
+
+        Per-batch cost is O(reads in this batch); the previous design
+        re-merged AND re-sorted the cumulative BAM here, which was
+        O(cumulative). Adding the per-batch `samtools index` costs ~50
+        ms on a typical ~10 MB per-FASTQ BAM, still well within the
+        constant-time budget proven in PR #9.
         """
         index_file = self.get_index_file()
         if not index_file:
@@ -263,6 +328,10 @@ class FileHandler(FileSystemEventHandler):
                 os.remove(sorted_bam_output)
             return
 
+        # Index so the accumulator can call pysam.count_coverage on it.
+        if not self._ensure_bam_index(sorted_bam_output):
+            return
+
         # Fold this batch's coverage into the rolling accumulator and
         # emit the standard coverage_update / region-alert work. Keep
         # the per-FASTQ BAM on disk — the lazy merge needs it.
@@ -271,10 +340,11 @@ class FileHandler(FileSystemEventHandler):
     def process_bam_file(self, bam_path: str, timestamp: str = None):
         """Fold an externally-produced BAM into the rolling accumulator.
 
-        The BAM must already be sorted (FileHandler does no sort/index
-        here — minimap2's `samtools sort` step does that for the FASTQ
-        path; external BAMs are assumed to be coordinate-sorted upstream
-        by the producer).
+        The BAM must already be sorted (FileHandler does no sort here —
+        minimap2's `samtools sort` step does that for the FASTQ path;
+        external BAMs are assumed to be coordinate-sorted upstream by
+        the producer). We always (re-)index because the accumulator
+        needs the index, even if the producer didn't ship one.
         """
         if not self.is_bam_valid(bam_path):
             logger.error(f"Skipping invalid BAM file: {bam_path}")
@@ -284,7 +354,34 @@ class FileHandler(FileSystemEventHandler):
         target = os.path.join(self.runs_dir, f'{os.path.basename(bam_path)}_sorted.bam')
         if bam_path != target:
             shutil.copy(bam_path, target)
+            # Bring along the producer's .bai if they shipped one.
+            src_bai = bam_path + '.bai'
+            if os.path.exists(src_bai):
+                shutil.copy(src_bai, target + '.bai')
+        if not self._ensure_bam_index(target):
+            return
         self.calculate_and_record_coverage(target, timestamp)
+
+    def _ensure_bam_index(self, bam_path: str) -> bool:
+        """Make sure a `.bai` sibling exists for `bam_path`. Returns
+        True on success, False on failure (the caller should skip the
+        rest of the batch).
+
+        Cheap to call repeatedly — if the index is already present and
+        newer than the BAM, we skip the subprocess. The mtime check
+        guards against a stale `.bai` from an interrupted previous run.
+        """
+        if not os.path.exists(bam_path):
+            return False
+        bai = bam_path + '.bai'
+        if os.path.exists(bai) and os.path.getmtime(bai) >= os.path.getmtime(bam_path):
+            return True
+        try:
+            subprocess.run(['samtools', 'index', bam_path], check=True)
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"samtools index failed for {bam_path}: {e}")
+            return False
 
     def get_index_file(self) -> str | None:
         """Retrieve the database index file (.mmi)."""
