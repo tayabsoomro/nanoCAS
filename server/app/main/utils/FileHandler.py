@@ -4,17 +4,16 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import time
 import glob
 import pysam
-import numpy as np
 from threading import Lock
 from watchdog.events import FileSystemEventHandler
 from app import socketio
 from .LinuxNotification import LinuxNotification
 from .email import send_email
 from .sms import send_sms
+from .coverage_accumulator import CoverageAccumulator
 
 # Set up logging
 logger = logging.getLogger('nanocas')
@@ -23,12 +22,18 @@ class FileHandler(FileSystemEventHandler):
     def __init__(self, app_loc: str):
         """
         Initialize the FileHandler with the application location.
-        Sets up paths for merged BAM files, coverage data, and processed files.
+
+        Coverage state lives in a rolling numpy accumulator persisted to
+        `coverage_state.npz` + `coverage_state.json` — see
+        coverage_accumulator.py and LOGBOOK section 4.1 for the
+        background. The legacy `merged.bam` / `merged_stable.bam` files
+        are no longer maintained per-batch; a single merged BAM is
+        rebuilt on demand by `_ensure_merged_bam` in routes.py when the
+        alignment viewer is opened.
         """
         self.app_loc = app_loc
-        self.merged_bam = os.path.join(self.app_loc, 'merged.bam')
-        self.stable_bam = os.path.join(self.app_loc, 'merged_stable.bam')  # Stable copy for reading
         self.coverage_file = os.path.join(self.app_loc, 'coverage.csv')
+        self.runs_dir = os.path.join(self.app_loc, 'minimap2', 'runs')
         self.processed_files_path = os.path.join(self.app_loc, 'processed_files.txt')
         self.processed_files = set()
         self.in_progress_files = set()
@@ -37,12 +42,12 @@ class FileHandler(FileSystemEventHandler):
         self.sent_alerts_path = os.path.join(self.app_loc, 'sent_alerts.json')
         self.sent_alerts_lock = Lock()
         self.sent_alerts = self._load_sent_alerts()
-        
+
         # Load previously processed files if the file exists
         if os.path.exists(self.processed_files_path):
             with open(self.processed_files_path, 'r') as f:
                 self.processed_files = set(f.read().splitlines())
-        
+
         # Load configuration from alertinfo.cfg
         with open(os.path.join(self.app_loc, 'alertinfo.cfg'), 'r') as f:
             self.config = json.load(f)
@@ -63,6 +68,47 @@ class FileHandler(FileSystemEventHandler):
         if os.path.exists(self.regions_json_path):
             with open(self.regions_json_path, 'r') as f:
                 self.regions_data = json.load(f)
+
+        # Rolling per-position depth accumulator. Replaces the cumulative
+        # merged.bam read pattern that made every batch O(n) and the run
+        # O(n^2). See LOGBOOK section 4.1 for the full diagnosis.
+        self.coverage_acc = CoverageAccumulator(self.app_loc)
+        self._migrate_legacy_merged_bam_if_needed()
+
+    def _migrate_legacy_merged_bam_if_needed(self):
+        """One-shot bootstrap: if a project predates this refactor it has
+        a `merged.bam` but no `coverage_state.npz`. Seed the accumulator
+        from the existing merged.bam, then rename it to
+        `legacy_pre_v9.bam` so the lazy-merge code path picks it up
+        alongside any newly-arrived per-FASTQ BAMs.
+
+        Idempotent: subsequent restarts see `coverage_state.npz` present
+        and skip the bootstrap.
+        """
+        legacy_merged = os.path.join(self.app_loc, 'merged.bam')
+        legacy_renamed = os.path.join(self.app_loc, 'legacy_pre_v9.bam')
+        already_migrated = os.path.exists(self.coverage_acc.depth_path)
+        nothing_to_do = not os.path.exists(legacy_merged)
+        if already_migrated or nothing_to_do:
+            return
+
+        logger.info(f"Migrating legacy merged.bam in {self.app_loc} -> coverage accumulator")
+        try:
+            with pysam.AlignmentFile(legacy_merged, 'rb') as bam:
+                self.coverage_acc.update_from_bam(bam)
+            self.coverage_acc.save()
+            os.replace(legacy_merged, legacy_renamed)
+            # Clean up the stale stable copy + its index; both are gone in the new layout.
+            for stale in [
+                legacy_merged + '.bai',
+                os.path.join(self.app_loc, 'merged_stable.bam'),
+                os.path.join(self.app_loc, 'merged_stable.bam.bai'),
+            ]:
+                if os.path.exists(stale):
+                    os.remove(stale)
+            logger.info("Legacy merged.bam migrated successfully")
+        except Exception as e:
+            logger.error(f"Legacy migration failed (continuing with empty accumulator): {e}", exc_info=True)
 
     def _load_sent_alerts(self):
         """Load previously sent alerts from JSON file."""
@@ -188,15 +234,21 @@ class FileHandler(FileSystemEventHandler):
             return False
 
     def process_fastq_file(self, src_path: str, timestamp: str = None):
-        """
-        Process a FASTQ file by aligning it to the database and merging the results.
+        """Align one FASTQ to the project's minimap2 index and fold the
+        resulting per-batch coverage into the rolling accumulator.
+
+        The per-FASTQ sorted BAM is kept on disk under `minimap2/runs/`
+        so the lazy-merge helper in routes.py can rebuild a single
+        merged BAM on demand for the alignment viewer. Per-batch cost
+        is O(reads in this batch); the previous design re-merged AND
+        re-sorted the cumulative BAM here, which was O(cumulative).
         """
         index_file = self.get_index_file()
         if not index_file:
             return
 
-        # Generate sorted BAM directly with minimap2
-        sorted_bam_output = os.path.join(self.app_loc, 'minimap2', 'runs', f'{os.path.basename(src_path)}_sorted.bam')
+        sorted_bam_output = os.path.join(self.runs_dir, f'{os.path.basename(src_path)}_sorted.bam')
+        os.makedirs(self.runs_dir, exist_ok=True)
         cmd = f'minimap2 -a {index_file} {src_path} | samtools view -b | samtools sort -o {sorted_bam_output}'
         try:
             logger.debug(f"Running command: {cmd}")
@@ -211,20 +263,28 @@ class FileHandler(FileSystemEventHandler):
                 os.remove(sorted_bam_output)
             return
 
-        # Merge and calculate coverage
-        self.merge_bam(sorted_bam_output)
-        self.calculate_and_record_coverage(timestamp)
-        # Clean up
-        if os.path.exists(sorted_bam_output):
-            os.remove(sorted_bam_output)
+        # Fold this batch's coverage into the rolling accumulator and
+        # emit the standard coverage_update / region-alert work. Keep
+        # the per-FASTQ BAM on disk — the lazy merge needs it.
+        self.calculate_and_record_coverage(sorted_bam_output, timestamp)
 
     def process_bam_file(self, bam_path: str, timestamp: str = None):
-        """Process a BAM file by merging it and calculating coverage."""
+        """Fold an externally-produced BAM into the rolling accumulator.
+
+        The BAM must already be sorted (FileHandler does no sort/index
+        here — minimap2's `samtools sort` step does that for the FASTQ
+        path; external BAMs are assumed to be coordinate-sorted upstream
+        by the producer).
+        """
         if not self.is_bam_valid(bam_path):
             logger.error(f"Skipping invalid BAM file: {bam_path}")
             return
-        self.merge_bam(bam_path)
-        self.calculate_and_record_coverage(timestamp)
+        # Copy into runs/ so the lazy-merge picks it up alongside FASTQ-derived BAMs.
+        os.makedirs(self.runs_dir, exist_ok=True)
+        target = os.path.join(self.runs_dir, f'{os.path.basename(bam_path)}_sorted.bam')
+        if bam_path != target:
+            shutil.copy(bam_path, target)
+        self.calculate_and_record_coverage(target, timestamp)
 
     def get_index_file(self) -> str | None:
         """Retrieve the database index file (.mmi)."""
@@ -234,118 +294,61 @@ class FileHandler(FileSystemEventHandler):
             return None
         return files[0]
 
-    def merge_bam(self, new_bam: str):
-        """Merge a new BAM file with the existing merged BAM, sort it, index it, and update both merged and stable copies."""
-        temp_merged = os.path.join(self.app_loc, 'temp_merged.bam')
-        sorted_merged = os.path.join(self.app_loc, 'merged_sorted.bam')
-        sorted_merged_index = sorted_merged + '.bai'
+    def calculate_and_record_coverage(self, batch_bam_path: str, timestamp: str = None):
+        """Fold one batch BAM into the rolling accumulator, then emit
+        the same coverage_update / alerts / coverage.csv-row work the
+        previous merged-BAM code path did.
 
-        # If no merged BAM exists yet, start with the new BAM
-        if not os.path.exists(self.merged_bam):
-            shutil.copy(new_bam, self.merged_bam)
-            shutil.copy(new_bam, temp_merged)
-        else:
-            # Merge the existing BAM with the new one
-            try:
-                subprocess.run(['samtools', 'merge', temp_merged, self.merged_bam, new_bam], check=True)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Error merging BAM files: {e}")
-                return
-
-        # Sort the merged BAM file
-        try:
-            subprocess.run(['samtools', 'sort', temp_merged, '-o', sorted_merged], check=True)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error sorting merged BAM: {e}")
-            if os.path.exists(temp_merged):
-                os.remove(temp_merged)
-            return
-
-        # Create an index for the sorted BAM file
-        try:
-            subprocess.run(['samtools', 'index', sorted_merged], check=True)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error indexing sorted BAM: {e}")
-            if os.path.exists(temp_merged):
-                os.remove(temp_merged)
-            if os.path.exists(sorted_merged):
-                os.remove(sorted_merged)
-            return
-
-        # Update both merged.bam and stable_bam atomically
-        try:
-            # First, update merged.bam as the cumulative file
-            shutil.move(sorted_merged, self.merged_bam)
-            # Then, copy to stable_bam for coverage calculation
-            shutil.copy(self.merged_bam, self.stable_bam)
-            if os.path.exists(sorted_merged_index):
-                shutil.move(sorted_merged_index, self.merged_bam + '.bai')
-                shutil.copy(self.merged_bam + '.bai', self.stable_bam + '.bai')
-            else:
-                logger.warning(f"Index file {sorted_merged_index} not found after indexing.")
-                # Regenerate indices for both files
-                subprocess.run(['samtools', 'index', self.merged_bam], check=True)
-                subprocess.run(['samtools', 'index', self.stable_bam], check=True)
-        except Exception as e:
-            logger.error(f"Error updating BAM files or indices: {e}")
-            return
-
-        # Clean up temporary files
-        if os.path.exists(temp_merged):
-            os.remove(temp_merged)
-
-    def calculate_and_record_coverage(self, timestamp: str = None):
-        """Calculate and record coverage using the stable BAM file."""
+        `batch_bam_path` is the per-FASTQ sorted BAM that was just
+        produced. We open it once to extract this batch's depth and
+        feed it to the accumulator; aggregate stats then come straight
+        from the accumulator without touching any larger file. Region
+        alerts slice the accumulator directly — no second BAM pass.
+        """
         if timestamp is None:
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
         try:
-            bam = pysam.AlignmentFile(self.stable_bam, "rb", check_sq=False)
-            if not bam.has_index():
-                logger.error(f"Index missing for {self.stable_bam}")
-                return
+            with pysam.AlignmentFile(batch_bam_path, "rb", check_sq=False) as batch_bam:
+                self.coverage_acc.update_from_bam(batch_bam)
+            self.coverage_acc.save()
+
             coverage_data = {}
-            for ref in bam.references:
-                ref_length = bam.lengths[bam.references.index(ref)]
-                coverage = bam.count_coverage(ref)
-                total_depth_per_position = np.sum([np.array(cov) for cov in coverage], axis=0)
-                total_depth = np.sum(total_depth_per_position)
-                depth_coverage = total_depth / ref_length if ref_length > 0 else 0
-                covered_positions = np.sum(total_depth_per_position >= 1)
-                breadth_coverage = (covered_positions / ref_length) * 100 if ref_length > 0 else 0
-                read_count = bam.count(ref)
+            for ref in self.coverage_acc.refs():
+                depth_coverage, breadth_coverage, read_count = self.coverage_acc.stats(ref)
                 coverage_data[ref] = {
                     "depth": depth_coverage,
                     "breadth": breadth_coverage,
-                    "read_count": read_count
+                    "read_count": read_count,
                 }
-                print(f"Reference: {ref}, Depth Coverage: {depth_coverage:.2f}x, Breadth Coverage: {breadth_coverage:.2f}%, Read Count: {read_count}")
+                logger.debug(
+                    f"Reference: {ref}, Depth Coverage: {depth_coverage:.2f}x, "
+                    f"Breadth Coverage: {breadth_coverage:.2f}%, Read Count: {read_count}"
+                )
                 self.check_coverage_alerts(ref, depth_coverage, breadth_coverage)
 
                 # Region-specific coverage and alerts. Dedup-keyed on
                 # f"{ref}_region_{id}_depth" so an over-threshold region
-                # fires once per run, not once per FASTQ batch — without
-                # this, every subsequent batch sent another email/SMS
-                # (Twilio bills per message).
+                # fires once per run, not once per FASTQ batch. Slices
+                # the accumulator instead of re-running count_coverage
+                # on a BAM (which used to be the cumulative merged BAM
+                # — see LOGBOOK section 4.1).
                 if ref in self.regions_data:
                     query = self.header_to_query.get(ref)
-                    # Original code read query["threshold"], a key that
-                    # doesn't exist in alertinfo.cfg (the real key is
-                    # `depth_threshold`), so the threshold silently fell
-                    # to 0 and every alert_enabled region fired every
-                    # cycle. Use the query's depth_threshold by default;
-                    # allow regions.json to override per-region.
                     default_threshold = float(query.get("depth_threshold", 0)) if query else 0
+                    depth_arr = self.coverage_acc.depth_array(ref)
                     for region in self.regions_data[ref]:
                         if not region.get('alert_enabled', False):
                             continue
                         start = region['start']
                         end = region['end']
                         region_id = region.get('id', f'{start}-{end}')
-                        region_coverage = bam.count_coverage(ref, start - 1, end)
-                        region_depth_per_position = np.sum([np.array(cov) for cov in region_coverage], axis=0)
-                        region_total_depth = np.sum(region_depth_per_position)
                         region_length = end - start + 1
-                        region_depth_coverage = region_total_depth / region_length if region_length > 0 else 0
+                        if depth_arr is None or region_length <= 0:
+                            continue
+                        # GFF is 1-based inclusive; numpy is 0-based half-open.
+                        region_slice = depth_arr[start - 1:end]
+                        region_total_depth = int(region_slice.sum())
+                        region_depth_coverage = region_total_depth / region_length
 
                         threshold = float(region.get('threshold', default_threshold))
                         if region_depth_coverage < threshold:
@@ -370,14 +373,11 @@ class FileHandler(FileSystemEventHandler):
                             'threshold': threshold,
                         })
 
-            unmapped_count = bam.unmapped
             coverage_data['unmapped'] = {
                 "depth": 0.0,
                 "breadth": 0.0,
-                "read_count": unmapped_count
+                "read_count": self.coverage_acc.unmapped_count,
             }
-
-            bam.close()
 
             with open(self.coverage_file, 'a') as f:
                 for ref, cov in coverage_data.items():

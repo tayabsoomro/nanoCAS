@@ -429,32 +429,92 @@ def parse_gff(gff_path, sequence_id):
         logger.error(f"Error parsing GFF file {gff_path}: {e}")
     return regions
 
+def _ensure_merged_bam(nanocas_path: str) -> str | None:
+    """Build (or refresh) `<nanocas_path>/merged.bam` from the per-FASTQ
+    sorted BAMs under `minimap2/runs/`, returning the merged path on
+    success or None if there's nothing to merge yet.
+
+    Since LOGBOOK section 4.1 the per-FASTQ BAMs are kept on disk
+    instead of being merged-and-deleted on every batch, so the merge
+    cost is paid only when the user opens the alignment viewer rather
+    than on every single FASTQ. Cached against `merge_manifest.json`:
+    if the set of input BAMs hasn't changed since the last merge, the
+    existing `merged.bam` is reused.
+
+    The `legacy_pre_v9.bam` input (renamed from the old cumulative
+    merged.bam during one-shot migration) is included alongside the
+    new per-FASTQ BAMs so historical alignments don't disappear from
+    the viewer after upgrade.
+
+    Safety against partial writes: samtools sort writes its output via
+    a temp file + atomic rename, so a glob of `*_sorted.bam` only ever
+    sees fully-written, sorted BAMs. We don't need an external lock.
+    """
+    runs_dir = os.path.join(nanocas_path, 'minimap2', 'runs')
+    merged_bam = os.path.join(nanocas_path, 'merged.bam')
+    manifest_path = os.path.join(nanocas_path, 'merge_manifest.json')
+    legacy_bam = os.path.join(nanocas_path, 'legacy_pre_v9.bam')
+
+    inputs: list[str] = []
+    if os.path.exists(legacy_bam):
+        inputs.append(legacy_bam)
+    if os.path.isdir(runs_dir):
+        inputs.extend(sorted(glob.glob(os.path.join(runs_dir, '*_sorted.bam'))))
+    if not inputs:
+        return None
+
+    cached_inputs: list[str] = []
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path) as f:
+                cached_inputs = json.load(f).get('inputs', [])
+        except Exception as e:
+            logger.warning(f"Could not read merge manifest {manifest_path}: {e}")
+    if cached_inputs == inputs and os.path.exists(merged_bam) and os.path.exists(merged_bam + '.bai'):
+        return merged_bam
+
+    try:
+        subprocess.run(['samtools', 'merge', '-f', merged_bam, *inputs], check=True)
+        subprocess.run(['samtools', 'index', merged_bam], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"samtools merge/index failed for {nanocas_path}: {e}")
+        return None
+
+    try:
+        with open(manifest_path, 'w') as f:
+            json.dump({'inputs': inputs}, f)
+    except Exception as e:
+        logger.warning(f"Could not write merge manifest {manifest_path}: {e}")
+
+    return merged_bam
+
+
 @main.route('/get_alignments', methods=['GET'])
 def get_alignments():
     nanocas_path = _validated_project_path(request.args.get('projectId'))
     reference = request.args.get('reference')
     if not reference:
         return jsonify({'error': 'reference is required'}), 400
-    stable_bam = os.path.join(nanocas_path, 'merged_stable.bam')
-    stable_bam_index = stable_bam + '.bai'
-    if not os.path.exists(stable_bam):
-        return jsonify({'error': 'Stable BAM file not found'}), 404
+
+    # The merged BAM is built lazily — paying the merge cost here means
+    # the per-FASTQ hot path stays O(reads in this batch).
+    merged_bam = _ensure_merged_bam(nanocas_path)
+    if not merged_bam:
+        return jsonify({'error': 'No alignments available yet'}), 404
+
     try:
-
-        if not os.path.exists(stable_bam_index):
-            return jsonify({'error': 'BAM index file not found'}), 404
-
-        bam = pysam.AlignmentFile(stable_bam, "rb")
-        if reference not in bam.references:
-            return jsonify({'error': 'Reference not found in BAM file'}), 404
-        ref_length = bam.lengths[bam.references.index(reference)]
-        alignments = []
-        for alignment in bam.fetch(reference):
-            if not alignment.is_unmapped:
-                start = alignment.reference_start
-                end = alignment.reference_end
-                strand = '-' if alignment.is_reverse else '+'
-                alignments.append({'start': start, 'end': end, 'strand': strand})
+        with pysam.AlignmentFile(merged_bam, "rb") as bam:
+            if reference not in bam.references:
+                return jsonify({'error': 'Reference not found in BAM file'}), 404
+            ref_length = bam.lengths[bam.references.index(reference)]
+            alignments = []
+            for alignment in bam.fetch(reference):
+                if not alignment.is_unmapped:
+                    alignments.append({
+                        'start': alignment.reference_start,
+                        'end': alignment.reference_end,
+                        'strand': '-' if alignment.is_reverse else '+',
+                    })
 
         # Load and parse GFF file if present
         alert_cfg_file = os.path.join(nanocas_path, 'alertinfo.cfg')
@@ -468,7 +528,6 @@ def get_alignments():
                     count = sum(1 for aln in alignments if aln['start'] < region['end'] and aln['end'] > region['start'])
                     region['read_count'] = count
 
-        bam.close()
         return jsonify({'ref_length': ref_length, 'alignments': alignments, 'regions': regions})
     except Exception as e:
         logger.error(f"Error getting alignments: {e}", exc_info=True)
