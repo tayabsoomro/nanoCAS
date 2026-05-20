@@ -321,26 +321,54 @@ class FileHandler(FileSystemEventHandler):
                 print(f"Reference: {ref}, Depth Coverage: {depth_coverage:.2f}x, Breadth Coverage: {breadth_coverage:.2f}%, Read Count: {read_count}")
                 self.check_coverage_alerts(ref, depth_coverage, breadth_coverage)
 
-                # Region-specific coverage and alerts
+                # Region-specific coverage and alerts. Dedup-keyed on
+                # f"{ref}_region_{id}_depth" so an over-threshold region
+                # fires once per run, not once per FASTQ batch — without
+                # this, every subsequent batch sent another email/SMS
+                # (Twilio bills per message).
                 if ref in self.regions_data:
+                    query = self.header_to_query.get(ref)
+                    # Original code read query["threshold"], a key that
+                    # doesn't exist in alertinfo.cfg (the real key is
+                    # `depth_threshold`), so the threshold silently fell
+                    # to 0 and every alert_enabled region fired every
+                    # cycle. Use the query's depth_threshold by default;
+                    # allow regions.json to override per-region.
+                    default_threshold = float(query.get("depth_threshold", 0)) if query else 0
                     for region in self.regions_data[ref]:
-                        if region.get('alert_enabled', False):
-                            start = region['start']
-                            end = region['end']
-                            region_coverage = bam.count_coverage(ref, start - 1, end)
-                            region_depth_per_position = np.sum([np.array(cov) for cov in region_coverage], axis=0)
-                            region_total_depth = np.sum(region_depth_per_position)
-                            region_length = end - start + 1
-                            region_depth_coverage = region_total_depth / region_length if region_length > 0 else 0
-                            region_covered_positions = np.sum(region_depth_per_position >= 1)
-                            region_breadth_coverage = (region_covered_positions / region_length) * 100 if region_length > 0 else 0
+                        if not region.get('alert_enabled', False):
+                            continue
+                        start = region['start']
+                        end = region['end']
+                        region_id = region.get('id', f'{start}-{end}')
+                        region_coverage = bam.count_coverage(ref, start - 1, end)
+                        region_depth_per_position = np.sum([np.array(cov) for cov in region_coverage], axis=0)
+                        region_total_depth = np.sum(region_depth_per_position)
+                        region_length = end - start + 1
+                        region_depth_coverage = region_total_depth / region_length if region_length > 0 else 0
 
-                            query = self.header_to_query.get(ref)
-                            threshold = float(query.get("threshold", 0)) if query else 0
-                            if region_depth_coverage >= threshold:
-                                alert_str = f"Alert: Region {region['id']} in {ref} depth coverage reached {region_depth_coverage:.2f}x (threshold: {threshold}x)"
-                                logger.critical(alert_str)
-                                self._send_notifications(alert_str)
+                        threshold = float(region.get('threshold', default_threshold))
+                        if region_depth_coverage < threshold:
+                            continue
+
+                        alert_key = f"{ref}_region_{region_id}_depth"
+                        if self._check_if_alert_sent(alert_key):
+                            logger.debug(f"Region depth alert {alert_key} already sent, skipping")
+                            continue
+
+                        alert_str = (
+                            f"Alert: Region {region_id} in {ref} depth coverage reached "
+                            f"{region_depth_coverage:.2f}x (threshold: {threshold}x)"
+                        )
+                        logger.critical(alert_str)
+                        self._send_notifications(alert_str)
+                        self._mark_alert_as_sent(alert_key, {
+                            'type': 'region_depth',
+                            'reference': ref,
+                            'region_id': region_id,
+                            'value': region_depth_coverage,
+                            'threshold': threshold,
+                        })
 
             unmapped_count = bam.unmapped
             coverage_data['unmapped'] = {
