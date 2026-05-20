@@ -28,6 +28,11 @@ const ProjectDetail: React.FC = () => {
     const [listenerRunning, setListenerRunning] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState(false);
     const [fileProgress, setFileProgress] = useState<{ files_processed: number; last_file: string | null } | null>(null);
+    // Coverage data lives here (not in CoverageTab) so switching to
+    // Run Health and back doesn't unmount the chart's data + force a
+    // re-fetch. See LOGBOOK §4.15.
+    const [coverageData, setCoverageData] = useState<any[]>([]);
+    const [coverageMap, setCoverageMap] = useState(new Map<string, any>());
 
     const switchTab = (t: TabType) => {
         history.push(`/project/${id}/${t}`);
@@ -73,8 +78,27 @@ const ProjectDetail: React.FC = () => {
         // Polling fallback so the badge stays current even if a socket
         // file_progress_update is dropped (long-polling transport can lose
         // a message if the connection blips between events). Matches the
-        // CoverageTab pattern. Interval mirrors POLLING_INTERVAL_MS there.
+        // coverage polling pattern. Interval mirrors POLLING_INTERVAL_MS.
         const progressInterval = setInterval(fetchProgress, 10000);
+
+        const fetchCoverage = async () => {
+            try {
+                const res = await axios.get(`${API_ENDPOINT}/get_coverage?projectId=${id}`);
+                const data = res.data;
+                setCoverageData(data);
+                const map = new Map<string, any>();
+                data.forEach((entry: any) => {
+                    map.set(`${entry.timestamp}-${entry.reference}`, entry);
+                });
+                setCoverageMap(map);
+            } catch { }
+        };
+        fetchCoverage();
+        // The 10 s coverage poll runs from ProjectDetail (not CoverageTab)
+        // so it keeps firing even when the user is on the Run Health tab.
+        // Without this, tab-switching back to Coverage showed an empty
+        // chart until the next poll landed.
+        const coverageInterval = setInterval(fetchCoverage, 10000);
 
         socket.emit('check_fastq_file_listener', { projectId: id });
 
@@ -95,18 +119,26 @@ const ProjectDetail: React.FC = () => {
                 });
             }
         };
+        const handleCoverageUpdate = (data: any) => {
+            if (data.projectId === id) {
+                fetchCoverage();
+            }
+        };
 
         socket.on('fastq_file_listener_status', handleStatus);
         socket.on('fastq_file_listener_started', handleStarted);
         socket.on('fastq_file_listener_stopped', handleStopped);
         socket.on('file_progress_update', handleProgress);
+        socket.on('coverage_update', handleCoverageUpdate);
 
         return () => {
             clearInterval(progressInterval);
+            clearInterval(coverageInterval);
             socket.off('fastq_file_listener_status', handleStatus);
             socket.off('fastq_file_listener_started', handleStarted);
             socket.off('fastq_file_listener_stopped', handleStopped);
             socket.off('file_progress_update', handleProgress);
+            socket.off('coverage_update', handleCoverageUpdate);
         };
     }, [id]);
 
@@ -204,10 +236,18 @@ const ProjectDetail: React.FC = () => {
 
             <div className="nano-tab-content">
                 {activeTab === 'coverage' && (
-                    <CoverageTab projectId={id!} projectData={projectData} />
+                    <CoverageTab
+                        projectId={id!}
+                        projectData={projectData}
+                        coverageData={coverageData}
+                        coverageMap={coverageMap}
+                    />
                 )}
                 {activeTab === 'runhealth' && (
-                    <RunHealthTab projectId={id!} />
+                    <RunHealthTab
+                        projectId={id!}
+                        qScoreThreshold={projectData?.qScoreThreshold}
+                    />
                 )}
                 {activeTab === 'alerts' && (
                     <AlertsTab projectId={id!} projectData={projectData} />

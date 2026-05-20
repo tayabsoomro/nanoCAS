@@ -18,6 +18,33 @@ from .coverage_accumulator import CoverageAccumulator
 # Set up logging
 logger = logging.getLogger('nanocas')
 
+# Canonical FASTQ extension set, used by both the watchdog dispatch
+# (_handle_path) and the startup catch-up loop (get_existing_files /
+# process_existing_files). Listed once so the two paths can't drift.
+#
+# .fasta was previously in this set, which made nanoCAS silently accept
+# unquality'd FASTA files as "FASTQ" — minimap2 would happily map them
+# but every Run Health metric (Q-score histogram, median-Q trend) would
+# be empty or zero, with no surface for the user to notice. If a user
+# wants to align FASTA reads they should rename to .fastq deliberately.
+FASTQ_EXTENSIONS = ('.fastq', '.fq', '.fastq.gz', '.fq.gz')
+
+# External BAM ingestion path; sorted+indexed BAMs from elsewhere.
+BAM_EXTENSIONS = ('.bam',)
+
+
+def _canonical_ref_id(header: str) -> str:
+    """Reduce a FASTA header line to the first whitespace-delimited token.
+
+    pysam exposes references via `bam.references` as just the first token
+    (samtools tokenises @SQ SN: this way too), so any code that wants to
+    look up `header_to_query[ref]` must use the same canonical form. NCBI
+    headers like `>NC_000913.3 Escherichia coli K-12 ...` would otherwise
+    silently fail to match.
+    """
+    return (header or '').split()[0] if (header and header.split()) else ''
+
+
 class FileHandler(FileSystemEventHandler):
     def __init__(self, app_loc: str):
         """
@@ -52,6 +79,13 @@ class FileHandler(FileSystemEventHandler):
         with open(os.path.join(self.app_loc, 'alertinfo.cfg'), 'r') as f:
             self.config = json.load(f)
         self.file_type = self.config.get('fileType', 'FASTQ')
+        # `header_to_query` keys are FASTA reference IDs as pysam exposes
+        # them via `bam.references` — i.e. the first whitespace-delimited
+        # token of the FASTA header line. NCBI-style headers like
+        # `>NC_000913.3 Escherichia coli K-12 substr. MG1655` round-trip
+        # through samtools as just `NC_000913.3`, so we normalise here so
+        # the lookup at alert-check time can't miss when alertinfo.cfg
+        # was written with a full descriptive header.
         self.header_to_query = {}
         for query in self.config.get("queries", []):
             headers = []
@@ -60,7 +94,7 @@ class FileHandler(FileSystemEventHandler):
             if "header" in query and query["header"]:
                 headers.append(query["header"])
             for h in headers:
-                self.header_to_query[h] = query
+                self.header_to_query[_canonical_ref_id(h)] = query
 
         # Load regions data
         self.regions_json_path = os.path.join(self.app_loc, 'regions.json')
@@ -237,10 +271,10 @@ class FileHandler(FileSystemEventHandler):
             mtime = os.path.getctime(file_path)
             timestamp = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
-            if self.file_type == 'FASTQ' and file_path.endswith((".fastq", ".fasta", ".fastq.gz", ".fq.gz")):
+            if self.file_type == 'FASTQ' and file_path.endswith(FASTQ_EXTENSIONS):
                 logger.debug(f"Processing FASTQ file: {file_path} with timestamp {timestamp}")
                 self.process_fastq_file(file_path, timestamp)
-            elif self.file_type == 'BAM' and file_path.endswith(".bam"):
+            elif self.file_type == 'BAM' and file_path.endswith(BAM_EXTENSIONS):
                 logger.debug(f"Processing BAM file: {file_path} with timestamp {timestamp}")
                 self.process_bam_file(file_path, timestamp)
             else:
@@ -624,9 +658,9 @@ class FileHandler(FileSystemEventHandler):
     def get_existing_files(self, directory):
         """Get list of existing files of the specified type, sorted by modification time."""
         if self.file_type == 'FASTQ':
-            extensions = ('.fastq', '.fasta', '.fastq.gz', '.fq.gz')
+            extensions = FASTQ_EXTENSIONS
         elif self.file_type == 'BAM':
-            extensions = ('.bam',)
+            extensions = BAM_EXTENSIONS
         else:
             return []
 

@@ -21,7 +21,17 @@ const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 interface RunHealthTabProps {
     projectId: string;
+    // Optional pass-through from ProjectDetail's projectData. If the
+    // alertinfo.cfg stored a `qScoreThreshold` value, use it; otherwise
+    // fall back to the MinKNOW HAC default of Q7. SUP basecalling tends
+    // to use Q10. See LOGBOOK §4.17.
+    qScoreThreshold?: number;
 }
+
+// Default matches the MinKNOW HAC "pass" threshold. Configurable per
+// project via `qScoreThreshold` in alertinfo.cfg (UI in the wizard is a
+// follow-up; for now users can edit the cfg directly to override).
+const DEFAULT_Q_SCORE_THRESHOLD = 7;
 
 interface RunHealthData {
     q_scores: number[];
@@ -36,10 +46,12 @@ interface RunHealthData {
     };
 }
 
-const RunHealthTab: React.FC<RunHealthTabProps> = ({ projectId }) => {
+const RunHealthTab: React.FC<RunHealthTabProps> = ({ projectId, qScoreThreshold }) => {
     const [data, setData] = useState<RunHealthData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const qPassThreshold = qScoreThreshold ?? DEFAULT_Q_SCORE_THRESHOLD;
 
     const fetchRunHealth = async () => {
         try {
@@ -104,8 +116,8 @@ const RunHealthTab: React.FC<RunHealthTabProps> = ({ projectId }) => {
         });
 
         const labels = bins.map((_, i) => `Q${i}`);
-        const colors = bins.map((_, i) => i >= 7 ? 'rgba(0, 176, 189, 0.7)' : 'rgba(231, 76, 60, 0.7)');
-        const borderColors = bins.map((_, i) => i >= 7 ? 'rgba(0, 176, 189, 1)' : 'rgba(231, 76, 60, 1)');
+        const colors = bins.map((_, i) => i >= qPassThreshold ? 'rgba(0, 176, 189, 0.7)' : 'rgba(231, 76, 60, 0.7)');
+        const borderColors = bins.map((_, i) => i >= qPassThreshold ? 'rgba(0, 176, 189, 1)' : 'rgba(231, 76, 60, 1)');
 
         return {
             labels,

@@ -1,16 +1,19 @@
 import React, { useEffect, useState, useMemo } from "react";
 import axios from "axios";
-import { socket } from "../../../app.component";
 import { Chart } from "react-google-charts";
 import { Dropdown } from "react-bootstrap";
 import AlignmentViewer from "../../analysis/analysis-data/alignment-viewer.component";
 
 const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
-const POLLING_INTERVAL_MS = 10000;
 
 interface CoverageTabProps {
     projectId: string;
     projectData: any;
+    // Coverage data is owned by ProjectDetail and passed down so the
+    // chart doesn't lose its state when the user switches to Run Health
+    // and back. See LOGBOOK §4.15.
+    coverageData: any[];
+    coverageMap: Map<string, any>;
 }
 
 interface AlignmentData {
@@ -21,9 +24,9 @@ interface AlignmentData {
 
 type TimeUnit = 'seconds' | 'minutes' | 'hours' | 'days';
 
-const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData }) => {
-    const [coverageData, setCoverageData] = useState<any[]>([]);
-    const [coverageMap, setCoverageMap] = useState(new Map<string, any>());
+const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, coverageData, coverageMap }) => {
+    // Only UI-ephemera state lives here. coverageData / coverageMap
+    // come from ProjectDetail so they persist across tab switches.
     const [metric, setMetric] = useState<'depth' | 'breadth'>('depth');
     const [timeUnit, setTimeUnit] = useState<TimeUnit>('seconds');
     const [selectedReference, setSelectedReference] = useState<string | null>(null);
@@ -36,36 +39,6 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData }) => 
     const unitLabels: Record<TimeUnit, string> = {
         seconds: 's', minutes: 'min', hours: 'h', days: 'd'
     };
-
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const res = await axios.get(`${API_ENDPOINT}/get_coverage?projectId=${projectId}`);
-                const data = res.data;
-                setCoverageData(data);
-                const map = new Map<string, any>();
-                data.forEach((entry: any) => {
-                    map.set(`${entry.timestamp}-${entry.reference}`, entry);
-                });
-                setCoverageMap(map);
-            } catch { }
-        };
-
-        fetchData();
-        const interval = setInterval(fetchData, POLLING_INTERVAL_MS);
-
-        const handleCoverageUpdate = (data: any) => {
-            if (data.projectId === projectId) {
-                fetchData();
-            }
-        };
-        socket.on('coverage_update', handleCoverageUpdate);
-
-        return () => {
-            clearInterval(interval);
-            socket.off('coverage_update', handleCoverageUpdate);
-        };
-    }, [projectId]);
 
     useEffect(() => {
         const fetchAlignments = async () => {
