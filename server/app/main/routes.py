@@ -9,7 +9,10 @@ import subprocess
 import glob
 import pysam
 
-from flask import session, render_template, request, abort, jsonify
+from typing import NoReturn
+
+from flask import session, render_template, request, abort, jsonify, make_response
+from werkzeug.utils import secure_filename
 from . import main
 from .utils import LinuxNotification
 from .utils.directory_scanner import scan_directory, parse_summary_combined
@@ -37,10 +40,7 @@ def version():
 
 @main.route('/check_database_status', methods=['GET'])
 def check_database_status():
-    project_id = request.args.get('projectId')
-    if not project_id:
-        return jsonify({'error': 'projectId is required'}), 400
-    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
+    nanocas_path = _validated_project_path(request.args.get('projectId'))
     mmi_files = glob.glob(os.path.join(nanocas_path, 'database', '*.mmi'))
     is_ready = len(mmi_files) > 0
     return jsonify({'is_ready': is_ready})
@@ -254,14 +254,21 @@ def upload_reference():
     if not files:
         return jsonify({'error': 'No files provided'}), 400
     for file in files:
-        if file.filename and file.filename.lower().endswith(FASTA_EXTENSIONS):
-            safe_name = os.path.basename(file.filename)
-            file_path = os.path.join(target_dir, safe_name)
-            file.save(file_path)
-            uploaded.append(safe_name)
-            logger.debug(f"Uploaded FASTA reference file to {file_path}")
-        else:
+        if not file.filename or not file.filename.lower().endswith(FASTA_EXTENSIONS):
             logger.warning(f"Skipped non-FASTA file: {file.filename}")
+            continue
+        # `secure_filename` strips path components AND dangerous chars
+        # (slashes, control chars, unicode tricks). The previous
+        # `os.path.basename` only stripped slashes. Returns '' for inputs
+        # like '..' or '.', so we re-check before saving.
+        safe_name = secure_filename(file.filename)
+        if not safe_name:
+            logger.warning(f"Rejected unsafe filename: {file.filename!r}")
+            continue
+        file_path = os.path.join(target_dir, safe_name)
+        file.save(file_path)
+        uploaded.append(safe_name)
+        logger.debug(f"Uploaded FASTA reference file to {file_path}")
     if not uploaded:
         return jsonify({'error': 'No valid FASTA files found (.fasta, .fa, .fna, .fasta.gz, .fa.gz, .fna.gz)'}), 400
     return jsonify({'uploaded': uploaded, 'directory': target_dir})
@@ -295,12 +302,12 @@ def validate_locations():
 
 @main.route('/get_coverage', methods=['GET'])
 def get_coverage():
-    project_id = request.args.get('projectId')
-    coverage_file = os.path.join(NANOCAS_DIR, project_id, 'coverage.csv')
+    nanocas_path = _validated_project_path(request.args.get('projectId'))
+    coverage_file = os.path.join(nanocas_path, 'coverage.csv')
     if not os.path.exists(coverage_file):
         return jsonify({'error': 'Coverage file not found'}), 404
 
-    alert_cfg_file = os.path.join(NANOCAS_DIR, project_id, 'alertinfo.cfg')
+    alert_cfg_file = os.path.join(nanocas_path, 'alertinfo.cfg')
     try:
         with open(alert_cfg_file, 'r') as f:
             alert_cfg = json.load(f)
@@ -343,31 +350,39 @@ def index_devices():
     # Explicitly return an empty list if not GET (should not happen)
     return json.dumps([])
 
-@main.route('/upload_fasta', methods=['POST'])
-def upload_fasta():
+def _save_uploaded_file(label: str):
+    """Common path for /upload_fasta and /upload_gff.
+
+    `tempfile.mkdtemp(dir=NANOCAS_DIR)` already guarantees the *parent*
+    directory is inside NANOCAS_DIR, but the previous code joined the
+    raw `file.filename` underneath it — meaning a malicious filename
+    like `../../etc/passwd` would have escaped that random temp dir.
+    `secure_filename` strips path components and dangerous chars. See
+    LOGBOOK §4.8.
+    """
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     file = request.files['file']
     if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
+    safe_name = secure_filename(file.filename)
+    if not safe_name:
+        return jsonify({'error': 'Invalid filename'}), 400
     temp_dir = tempfile.mkdtemp(dir=NANOCAS_DIR)
-    file_path = os.path.join(temp_dir, file.filename)
+    file_path = os.path.join(temp_dir, safe_name)
     file.save(file_path)
-    logger.debug(f"Uploaded FASTA file to {file_path}")
+    logger.debug(f"Uploaded {label} file to {file_path}")
     return jsonify({'file_path': file_path})
+
+
+@main.route('/upload_fasta', methods=['POST'])
+def upload_fasta():
+    return _save_uploaded_file('FASTA')
+
 
 @main.route('/upload_gff', methods=['POST'])
 def upload_gff():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    file = request.files['file']
-    if not file.filename:
-        return jsonify({'error': 'No file selected'}), 400
-    temp_dir = tempfile.mkdtemp(dir=NANOCAS_DIR)
-    file_path = os.path.join(temp_dir, file.filename)
-    file.save(file_path)
-    logger.debug(f"Uploaded GFF file to {file_path}")
-    return jsonify({'file_path': file_path})
+    return _save_uploaded_file('GFF')
 
 @main.route('/parse_fasta_headers', methods=['POST'])
 def parse_fasta_headers():
@@ -416,12 +431,11 @@ def parse_gff(gff_path, sequence_id):
 
 @main.route('/get_alignments', methods=['GET'])
 def get_alignments():
-    project_id = request.args.get('projectId')
+    nanocas_path = _validated_project_path(request.args.get('projectId'))
     reference = request.args.get('reference')
-    if not project_id or not reference:
-        return jsonify({'error': 'projectId and reference are required'}), 400
-    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
-    stable_bam = os.path.join(nanocas_path, 'merged_stable.bam') 
+    if not reference:
+        return jsonify({'error': 'reference is required'}), 400
+    stable_bam = os.path.join(nanocas_path, 'merged_stable.bam')
     stable_bam_index = stable_bam + '.bai'
     if not os.path.exists(stable_bam):
         return jsonify({'error': 'Stable BAM file not found'}), 404
@@ -457,8 +471,7 @@ def get_alignments():
         bam.close()
         return jsonify({'ref_length': ref_length, 'alignments': alignments, 'regions': regions})
     except Exception as e:
-        logger.error(f"Error getting alignments: {e}")
-        print(e)
+        logger.error(f"Error getting alignments: {e}", exc_info=True)
         return jsonify({'error': 'Error processing BAM file'}), 500
 
 def validate_cache(cache_path=CACHE_PATH):
@@ -474,6 +487,45 @@ def _is_safe_path(base_dir, target_path):
     real_base = os.path.realpath(base_dir)
     real_target = os.path.realpath(target_path)
     return real_target.startswith(real_base + os.sep) or real_target == real_base
+
+
+def _abort_json(status: int, message: str) -> NoReturn:
+    """Abort the request with a JSON-formatted error body.
+
+    Flask's default `abort(400)` returns HTML, which forces every caller
+    to either build the response by hand or live with a content-type
+    mismatch. This helper wraps abort() with a jsonify'd response so
+    every error route returns the same `{"error": "..."}` shape.
+    """
+    abort(make_response(jsonify({'error': message}), status))
+
+
+def _validated_project_path(project_id: str | None) -> str:
+    """Validate a `projectId` query parameter and return the absolute
+    on-disk project directory.
+
+    Aborts the request with a JSON error response if the project id is
+    missing, contains traversal sequences, escapes NANOCAS_DIR, or
+    doesn't exist on disk. Three previously-vulnerable endpoints
+    (`/check_database_status`, `/get_coverage`, `/get_alignments`)
+    accepted `projectId` straight off the wire and joined it into a path
+    without guards — see LOGBOOK §4.8.
+
+    The redundant explicit `os.sep` / `..` checks are intentional
+    defence-in-depth: `_is_safe_path` would catch them via realpath, but
+    the cheap string check rejects the obvious cases without touching
+    the filesystem at all.
+    """
+    if not project_id:
+        _abort_json(400, 'projectId is required')
+    if os.sep in project_id or '..' in project_id:
+        _abort_json(400, 'Invalid project ID')
+    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
+    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
+        _abort_json(400, 'Invalid project ID')
+    if not os.path.isdir(nanocas_path):
+        _abort_json(404, 'Project not found')
+    return nanocas_path
 
 
 @main.route('/scan_directory', methods=['POST'])
@@ -492,18 +544,7 @@ def scan_dir_endpoint():
 
 @main.route('/run_health', methods=['GET'])
 def run_health():
-    project_id = request.args.get('projectId')
-    if not project_id:
-        return jsonify({'error': 'projectId is required'}), 400
-
-    if os.sep in project_id or '..' in project_id:
-        return jsonify({'error': 'Invalid project ID'}), 400
-
-    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
-    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
-        return jsonify({'error': 'Invalid project ID'}), 400
-    if not os.path.isdir(nanocas_path):
-        return jsonify({'error': 'Project not found'}), 404
+    nanocas_path = _validated_project_path(request.args.get('projectId'))
 
     alert_cfg_path = os.path.join(nanocas_path, 'alertinfo.cfg')
     minion_dir = None
@@ -576,17 +617,7 @@ def get_processing_status():
     arrive via the `file_progress_update` socket event; this endpoint exists
     so the frontend can hydrate the indicator on first mount.
     """
-    project_id = request.args.get('projectId')
-    if not project_id:
-        return jsonify({'error': 'projectId is required'}), 400
-    if os.sep in project_id or '..' in project_id:
-        return jsonify({'error': 'Invalid project ID'}), 400
-
-    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
-    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
-        return jsonify({'error': 'Invalid project ID'}), 400
-    if not os.path.isdir(nanocas_path):
-        return jsonify({'error': 'Project not found'}), 404
+    nanocas_path = _validated_project_path(request.args.get('projectId'))
 
     processed_files_path = os.path.join(nanocas_path, 'processed_files.txt')
     if not os.path.exists(processed_files_path):
