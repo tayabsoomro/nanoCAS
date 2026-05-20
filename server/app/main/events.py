@@ -1,4 +1,3 @@
-from flask import session
 from flask_socketio import emit
 from .. import socketio
 
@@ -44,23 +43,6 @@ def run_fastq_watcher(app_loc, minion_loc):
 # ---------------------------------------------------------------------------
 # SOCKET EVENTS
 # ---------------------------------------------------------------------------
-
-@socketio.on('connect', namespace="/analysis")
-def analysis_connected():
-    logger.debug("Unused analysis connection made.")
-
-
-@socketio.on('disconnect', namespace="/analysis")
-def analysis_disconnected():
-    nanocas_loc = session.get('nanocas_location', '')
-    if nanocas_loc:
-        busy_file = os.path.join(nanocas_loc, 'analysis_busy')
-        try:
-            os.remove(busy_file)
-        except FileNotFoundError:
-            pass
-    logger.debug("Disconnect from analysis connection.")
-
 
 @socketio.on('remove_analysis')
 def remove_analysis(data):

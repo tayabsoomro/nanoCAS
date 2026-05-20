@@ -1,4 +1,3 @@
-import ast
 import json
 import logging
 import os
@@ -11,7 +10,7 @@ import pysam
 
 from typing import NoReturn
 
-from flask import session, render_template, request, abort, jsonify, make_response
+from flask import request, abort, jsonify, make_response
 from werkzeug.utils import secure_filename
 from . import main
 from .utils import LinuxNotification
@@ -45,28 +44,8 @@ def check_database_status():
     is_ready = len(mmi_files) > 0
     return jsonify({'is_ready': is_ready})
 
-@main.route('/get_timeline_info', methods=["GET"])
-def get_timeline_info():
-    timeline_path = get_analysis_timeline_path()
-    if os.path.exists(timeline_path):
-        with open(timeline_path, 'r') as analysis_timeline:
-            line = analysis_timeline.readline()
-            try:
-                num_total_reads, num_classified_reads = line.split("\t")
-                return jsonify(status=200,
-                               num_total_reads=int(num_total_reads),
-                               num_classified_reads=int(num_classified_reads))
-            except ValueError as e:
-                logger.error(f"Error parsing timeline info: {e}")
-                return jsonify({'message': 'Invalid timeline format'}), 400
-    else:
-        return jsonify({'message': 'Timeline info not found'}), 404
-
 def get_nanocas_cache_path():
     return os.path.join(NANOCAS_DIR, '.cache')
-
-def get_analysis_timeline_path():
-    return os.path.join(NANOCAS_DIR, 'analysis.timeline')
 
 def write_to_cache(uid, minION_location, uid_dir):
     entry = f"{uid}\t{minION_location}\t{uid_dir}\n"
@@ -182,57 +161,6 @@ def get_analysis_info():
 
     else:
         return "Unexpected request method. Expected a GET request."
-
-@main.route('/analysis', methods=['GET'])
-def analysis():
-    if (request.method == 'GET'):
-
-        nanocas_location = os.path.join(os.path.expanduser('~'), '.nanocas/')
-        minion = request.args.get('minion')
-
-        session['nanocas_location'] = nanocas_location
-        session['minion'] = minion
-
-        error = []
-
-        # Location for the applicaiton data directory
-        nanocas_location = nanocas_location if nanocas_location.endswith('/') else nanocas_location + '/'
-
-        # check if nanocas_location is valid
-        if subprocess.call(['ls', nanocas_location]) == 0:
-            # if nanocas_location exists
-            if subprocess.call(['ls', nanocas_location + 'alertinfo.cfg']) == 0:
-                # if minion location exists
-                if minion is not None and subprocess.call(['ls', minion]) == 0:
-                    # locations are valid
-
-                    # is another user already on that page? If so, bounce this user
-                    if subprocess.call(['ls', nanocas_location + 'analysis_busy']) == 0:
-                        error.append({'message': 'This route is busy. Please try again!'})
-                    else:
-
-                        analysis_started_date = None
-                        if subprocess.call(['ls', nanocas_location + 'analysis_started']) == 0:
-                            with open(nanocas_location + 'analysis_started', 'r') as f:
-                                analysis_started_date = f.readline()
-                        else:
-                            import datetime, time
-                            d = datetime.datetime.utcnow()
-                            for_js = int(time.mktime(d.timetuple())) * 1000
-                            analysis_started_date = for_js
-                            with open(nanocas_location + 'analysis_started', 'w') as f:
-                                f.write(str(analysis_started_date))
-
-                        subprocess.call(['touch', nanocas_location + 'analysis_busy'])
-                        return render_template('analysis.html', app_loc=nanocas_location, minion_loc=minion,
-                                               start_time=analysis_started_date)
-                else:
-                    error.append({'message': 'MinION location is not valid.'})
-            else:
-                error.append({'message': 'Alert configuration file is not found.'})
-        else:
-            error.append({'message': 'App location was not found'})
-    return json.dumps(error)
 
 @main.route('/get_default_nanopore_path', methods=['GET'])
 def get_default_nanopore_path():

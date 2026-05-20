@@ -1,11 +1,10 @@
 [project]
-name = "repl-nix-workspace"
+name = "nanocas"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.12"
+description = "Nanopore Classification & Alerting System — live alerts during ONT sequencing runs"
+requires-python = ">=3.10"
 dependencies = [
     "biopython>=1.86",
-    "celery==5.5.0",
     "eventlet==0.39.1",
     "flask==2.3.3",
     "flask-cors==5.0.1",
@@ -15,7 +14,13 @@ dependencies = [
     "numpy==1.26.4",
     "pysam==0.23.0",
     "python-dotenv>=1.2.2",
-    "redis==5.2.1",
     "twilio>=9.10.3",
     "watchdog==6.0.0",
+]
+
+[project.optional-dependencies]
+# pip install ".[dev]" / uv sync --extra dev — pulls test + lint deps without
+# bloating the production install. The pytest suite lives under server/tests/.
+dev = [
+    "pytest>=8.0",
 ]
