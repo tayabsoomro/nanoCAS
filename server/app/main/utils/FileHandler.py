@@ -9,7 +9,7 @@ import time
 import glob
 import pysam
 import numpy as np
-from threading import Lock, Thread
+from threading import Lock
 from watchdog.events import FileSystemEventHandler
 from app import socketio
 from .LinuxNotification import LinuxNotification
@@ -372,7 +372,14 @@ class FileHandler(FileSystemEventHandler):
                 except Exception as exc:
                     logger.warning(f"emit failed (non-fatal): {exc}")
 
-            Thread(target=_emit_updates, args=(emit_payload,), daemon=True).start()
+            # Use the SocketIO server's own task spawner. With eventlet async
+            # mode this schedules a greenlet on the hub, which is the only
+            # documented thread-safe way to call socketio.emit from outside
+            # an existing greenlet (we're being called from a watchdog
+            # native thread). A raw threading.Thread "mostly works" but
+            # messages occasionally never reach the client — which is what
+            # caused the file-progress badge to need a page reload.
+            socketio.start_background_task(_emit_updates, emit_payload)
         except Exception as e:
             logger.error(f"Error calculating coverage: {e}", exc_info=True)
 
@@ -468,10 +475,11 @@ class FileHandler(FileSystemEventHandler):
         """Push a progress update so the UI can show the processed-file count
         and the most recent filename next to the Monitoring badge.
 
-        Emitting from the watchdog dispatcher thread requires the same
-        defensive wrapping as the coverage_update emit — eventlet + raw
-        threads is delicate, and an emit failure here must not propagate
-        and stop file processing.
+        Dispatched through `socketio.start_background_task` so the emit runs
+        on an eventlet greenlet in the hub — calling socketio.emit directly
+        from a watchdog native thread is undocumented behaviour and was
+        sometimes losing messages, which made the badge appear stale until
+        the user manually reloaded the page.
         """
         payload = {
             'projectId': self.config.get('projectId', ''),
@@ -486,7 +494,7 @@ class FileHandler(FileSystemEventHandler):
             except Exception as exc:
                 logger.warning(f"file_progress emit failed (non-fatal): {exc}")
 
-        Thread(target=_do_emit, args=(payload,), daemon=True).start()
+        socketio.start_background_task(_do_emit, payload)
 
     def get_existing_files(self, directory):
         """Get list of existing files of the specified type, sorted by modification time."""

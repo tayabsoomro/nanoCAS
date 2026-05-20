@@ -70,6 +70,11 @@ const ProjectDetail: React.FC = () => {
             } catch { }
         };
         fetchProgress();
+        // Polling fallback so the badge stays current even if a socket
+        // file_progress_update is dropped (long-polling transport can lose
+        // a message if the connection blips between events). Matches the
+        // CoverageTab pattern. Interval mirrors POLLING_INTERVAL_MS there.
+        const progressInterval = setInterval(fetchProgress, 10000);
 
         socket.emit('check_fastq_file_listener', { projectId: id });
 
@@ -97,6 +102,7 @@ const ProjectDetail: React.FC = () => {
         socket.on('file_progress_update', handleProgress);
 
         return () => {
+            clearInterval(progressInterval);
             socket.off('fastq_file_listener_status', handleStatus);
             socket.off('fastq_file_listener_started', handleStarted);
             socket.off('fastq_file_listener_stopped', handleStopped);
