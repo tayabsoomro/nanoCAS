@@ -314,22 +314,30 @@ def upload_gff():
 
 @main.route('/parse_fasta_headers', methods=['POST'])
 def parse_fasta_headers():
+    """Extract the canonical reference IDs from a FASTA file.
+
+    Returns only the first whitespace-delimited token of each `>` header
+    line — i.e. the form samtools and pysam expose via
+    `bam.references`. This is what the wizard puts into `alertinfo.cfg`
+    and what `FileHandler.header_to_query` looks up at alert time.
+
+    Returning the full descriptive header (`>NC_000913.3 E. coli K-12
+    ...`) would round-trip through samtools as just `NC_000913.3`, so
+    the alert lookup would always miss. See LOGBOOK §4.17.
+    """
     data = request.json
     file_path = data.get('file_path')
     if not file_path or not os.path.exists(file_path):
         return jsonify({'error': 'Invalid file path'}), 400
-    headers = []
+    headers: list[str] = []
     try:
-        if file_path.endswith('.gz'):
-            with gzip.open(file_path, 'rt') as f:
-                for line in f:
-                    if line.startswith('>'):
-                        headers.append(line[1:].strip())
-        else:
-            with open(file_path, 'r') as f:
-                for line in f:
-                    if line.startswith('>'):
-                        headers.append(line[1:].strip())
+        opener = gzip.open if file_path.endswith('.gz') else open
+        with opener(file_path, 'rt') as f:
+            for line in f:
+                if line.startswith('>'):
+                    tokens = line[1:].strip().split()
+                    if tokens:
+                        headers.append(tokens[0])
         logger.debug(f"Parsed {len(headers)} headers from {file_path}")
         return jsonify(headers)
     except Exception as e:

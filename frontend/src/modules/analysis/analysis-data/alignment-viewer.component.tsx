@@ -49,10 +49,14 @@ const AlignmentViewer: React.FC<AlignmentViewerProps> = ({ refId, refLength, ali
     const rowGap = 8;
     const noReadsPlaceholderHeight = 25;
 
-    // Stacking algorithm for reads
+    // Stacking algorithm for reads. Use a copy — `alignments` is a React
+    // prop and the previous `.sort()` call mutated the parent's array
+    // in place. That's not just bad form: when React compares props by
+    // reference for memo'd children, the in-place sort makes the new
+    // reference "equal" to the old, so other consumers can miss updates.
+    const sortedAlignments = [...alignments].sort((a, b) => a.start - b.start);
     const rows: Alignment[][] = [];
-    alignments.sort((a, b) => a.start - b.start);
-    alignments.forEach(alignment => {
+    sortedAlignments.forEach(alignment => {
         let placed = false;
         for (const row of rows) {
             const lastAlignment = row[row.length - 1];
