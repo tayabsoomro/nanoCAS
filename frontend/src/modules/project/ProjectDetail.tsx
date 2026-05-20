@@ -27,6 +27,7 @@ const ProjectDetail: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [listenerRunning, setListenerRunning] = useState(false);
     const [isDatabaseReady, setIsDatabaseReady] = useState(false);
+    const [fileProgress, setFileProgress] = useState<{ files_processed: number; last_file: string | null } | null>(null);
 
     const switchTab = (t: TabType) => {
         history.push(`/project/${id}/${t}`);
@@ -57,6 +58,19 @@ const ProjectDetail: React.FC = () => {
         };
         checkDb();
 
+        const fetchProgress = async () => {
+            try {
+                const res = await axios.get(`${API_ENDPOINT}/get_processing_status?projectId=${id}`);
+                if (res.data && typeof res.data.files_processed === 'number') {
+                    setFileProgress({
+                        files_processed: res.data.files_processed,
+                        last_file: res.data.last_file ?? null,
+                    });
+                }
+            } catch { }
+        };
+        fetchProgress();
+
         socket.emit('check_fastq_file_listener', { projectId: id });
 
         const handleStatus = (data: any) => {
@@ -68,15 +82,25 @@ const ProjectDetail: React.FC = () => {
         const handleStopped = (data: any) => {
             if (data.projectId === id) setListenerRunning(false);
         };
+        const handleProgress = (data: any) => {
+            if (data.projectId === id && typeof data.files_processed === 'number') {
+                setFileProgress({
+                    files_processed: data.files_processed,
+                    last_file: data.last_file ?? null,
+                });
+            }
+        };
 
         socket.on('fastq_file_listener_status', handleStatus);
         socket.on('fastq_file_listener_started', handleStarted);
         socket.on('fastq_file_listener_stopped', handleStopped);
+        socket.on('file_progress_update', handleProgress);
 
         return () => {
             socket.off('fastq_file_listener_status', handleStatus);
             socket.off('fastq_file_listener_started', handleStarted);
             socket.off('fastq_file_listener_stopped', handleStopped);
+            socket.off('file_progress_update', handleProgress);
         };
     }, [id]);
 
@@ -119,6 +143,15 @@ const ProjectDetail: React.FC = () => {
                     <Link to="/" className="nano-back-link">&larr; Projects</Link>
                     <h2 className="nano-project-title">Project {id?.substring(0, 8)}</h2>
                     <span className="nano-project-path">{projectData.minion}</span>
+                    {fileProgress && fileProgress.files_processed > 0 && (
+                        <span className="nano-progress-indicator" title={fileProgress.last_file ?? ''}>
+                            <strong>{fileProgress.files_processed.toLocaleString()}</strong>
+                            {' '}files processed
+                            {fileProgress.last_file && (
+                                <span className="nano-progress-last"> &middot; last: <code>{fileProgress.last_file}</code></span>
+                            )}
+                        </span>
+                    )}
                 </div>
                 <div className="nano-project-header-right">
                     <span className={`nano-status-indicator ${listenerRunning ? 'active' : 'inactive'}`}>

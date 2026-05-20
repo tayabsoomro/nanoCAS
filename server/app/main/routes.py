@@ -564,3 +564,48 @@ def run_health():
     }
 
     return jsonify(data)
+
+
+@main.route('/get_processing_status', methods=['GET'])
+def get_processing_status():
+    """Return how many input files (FASTQ/BAM) have been processed for this
+    project and the most-recent filename.
+
+    The source of truth is `processed_files.txt` (one absolute path per
+    line), which `FileHandler._record_processed` appends to. Live updates
+    arrive via the `file_progress_update` socket event; this endpoint exists
+    so the frontend can hydrate the indicator on first mount.
+    """
+    project_id = request.args.get('projectId')
+    if not project_id:
+        return jsonify({'error': 'projectId is required'}), 400
+    if os.sep in project_id or '..' in project_id:
+        return jsonify({'error': 'Invalid project ID'}), 400
+
+    nanocas_path = os.path.join(NANOCAS_DIR, project_id)
+    if not _is_safe_path(NANOCAS_DIR, nanocas_path):
+        return jsonify({'error': 'Invalid project ID'}), 400
+    if not os.path.isdir(nanocas_path):
+        return jsonify({'error': 'Project not found'}), 404
+
+    processed_files_path = os.path.join(nanocas_path, 'processed_files.txt')
+    if not os.path.exists(processed_files_path):
+        return jsonify({
+            'files_processed': 0,
+            'last_file': None,
+            'last_file_full_path': None,
+        })
+
+    try:
+        with open(processed_files_path, 'r') as f:
+            lines = [line.strip() for line in f if line.strip()]
+    except OSError as e:
+        logger.warning(f"Could not read {processed_files_path}: {e}")
+        return jsonify({'error': 'Could not read processed_files.txt'}), 500
+
+    last = lines[-1] if lines else None
+    return jsonify({
+        'files_processed': len(lines),
+        'last_file': os.path.basename(last) if last else None,
+        'last_file_full_path': last,
+    })

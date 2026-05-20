@@ -26,7 +26,6 @@ class FileHandler(FileSystemEventHandler):
         Sets up paths for merged BAM files, coverage data, and processed files.
         """
         self.app_loc = app_loc
-        self.num_files_classified = 0
         self.merged_bam = os.path.join(self.app_loc, 'merged.bam')
         self.stable_bam = os.path.join(self.app_loc, 'merged_stable.bam')  # Stable copy for reading
         self.coverage_file = os.path.join(self.app_loc, 'coverage.csv')
@@ -148,11 +147,7 @@ class FileHandler(FileSystemEventHandler):
                 return  # don't mark non-matching paths as processed
 
             # Promote from in-progress to fully processed
-            with self.processed_files_lock:
-                self.processed_files.add(file_path)
-                self.in_progress_files.discard(file_path)
-                with open(self.processed_files_path, 'a') as f:
-                    f.write(file_path + '\n')
+            self._record_processed(file_path)
 
         except Exception as e:
             logger.error(f"Unhandled error processing {file_path}: {e}", exc_info=True)
@@ -451,7 +446,48 @@ class FileHandler(FileSystemEventHandler):
                     logger.error(f"Failed to send SMS notification: {e}")
             else:
                 logger.error("SMS recipient phone number is missing.")
-    
+
+    def _record_processed(self, file_path: str):
+        """Mark `file_path` as fully processed: add to in-memory set, append
+        to processed_files.txt, release any in-progress claim, and notify
+        the UI over Socket.IO.
+
+        Centralised so the bookkeeping stays identical for both the watchdog
+        dispatch path (`_handle_path`) and the startup catch-up loop
+        (`process_existing_files`).
+        """
+        with self.processed_files_lock:
+            self.processed_files.add(file_path)
+            self.in_progress_files.discard(file_path)
+            with open(self.processed_files_path, 'a') as f:
+                f.write(file_path + '\n')
+            count = len(self.processed_files)
+        self._emit_file_progress(count, file_path)
+
+    def _emit_file_progress(self, count: int, file_path: str):
+        """Push a progress update so the UI can show the processed-file count
+        and the most recent filename next to the Monitoring badge.
+
+        Emitting from the watchdog dispatcher thread requires the same
+        defensive wrapping as the coverage_update emit — eventlet + raw
+        threads is delicate, and an emit failure here must not propagate
+        and stop file processing.
+        """
+        payload = {
+            'projectId': self.config.get('projectId', ''),
+            'files_processed': count,
+            'last_file': os.path.basename(file_path),
+            'last_file_full_path': file_path,
+        }
+
+        def _do_emit(p):
+            try:
+                socketio.emit('file_progress_update', p)
+            except Exception as exc:
+                logger.warning(f"file_progress emit failed (non-fatal): {exc}")
+
+        Thread(target=_do_emit, args=(payload,), daemon=True).start()
+
     def get_existing_files(self, directory):
         """Get list of existing files of the specified type, sorted by modification time."""
         if self.file_type == 'FASTQ':
@@ -478,9 +514,6 @@ class FileHandler(FileSystemEventHandler):
                     self.process_fastq_file(file, timestamp)
                 elif self.file_type == 'BAM':
                     self.process_bam_file(file, timestamp)
-                with self.processed_files_lock:
-                    self.processed_files.add(file)
-                    with open(self.processed_files_path, 'a') as f:
-                        f.write(file + '\n')
+                self._record_processed(file)
             except Exception as e:
                 logger.error(f"Error processing existing file {file}: {e}", exc_info=True)

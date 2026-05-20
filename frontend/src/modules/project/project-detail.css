@@ -41,6 +41,30 @@
     color: var(--ont-dark-gray);
 }
 
+.nano-progress-indicator {
+    font-size: var(--ont-font-size-sm);
+    color: var(--ont-dark-gray);
+    margin-top: 2px;
+}
+
+.nano-progress-indicator strong {
+    color: var(--ont-text-color, #00B0BD);
+    font-weight: 600;
+}
+
+.nano-progress-indicator code {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+    background: rgba(0, 0, 0, 0.04);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.nano-progress-last {
+    color: var(--ont-dark-gray);
+    opacity: 0.85;
+}
+
 .nano-project-header-right {
     display: flex;
     align-items: center;
