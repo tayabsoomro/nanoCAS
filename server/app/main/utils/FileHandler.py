@@ -14,6 +14,7 @@ from .LinuxNotification import LinuxNotification
 from .email import send_email
 from .sms import send_sms
 from .coverage_accumulator import CoverageAccumulator
+from ..classifiers import get_classifier
 
 # Set up logging
 logger = logging.getLogger('nanocas')
@@ -109,6 +110,19 @@ class FileHandler(FileSystemEventHandler):
         self.coverage_acc = CoverageAccumulator(self.app_loc)
         self._migrate_legacy_merged_bam_if_needed()
         self._repair_unindexed_runs_if_needed()
+
+        # Pluggable classifier (LOGBOOK section 4.3). Defaults to
+        # minimap2 so projects whose alertinfo.cfg predates this change
+        # keep working unchanged. Resolution happens once at startup;
+        # the registered class is instantiated and cached on the
+        # handler so the per-batch hot path doesn't repeat the lookup.
+        classifier_name = self.config.get('classifier', 'minimap2')
+        try:
+            self.classifier = get_classifier(classifier_name)
+            logger.info(f"Using classifier: {self.classifier.name}")
+        except ValueError as e:
+            logger.error(f"Configured classifier {classifier_name!r} not found, falling back to minimap2: {e}")
+            self.classifier = get_classifier('minimap2')
 
     def _migrate_legacy_merged_bam_if_needed(self):
         """One-shot bootstrap: if a project predates this refactor it has
@@ -323,37 +337,37 @@ class FileHandler(FileSystemEventHandler):
             return False
 
     def process_fastq_file(self, src_path: str, timestamp: str = None):
-        """Align one FASTQ to the project's minimap2 index and fold the
-        resulting per-batch coverage into the rolling accumulator.
+        """Align one FASTQ to the project's index via the configured
+        classifier, then fold the resulting per-batch coverage into the
+        rolling accumulator.
 
-        The per-FASTQ sorted BAM is kept on disk under `minimap2/runs/`
-        AND indexed (a `.bai` sits next to it). pysam's
-        `count_coverage` internally calls `fetch`, which requires the
-        index — without it the call raises `fetch called on bamfile
-        without index` and the entire batch's coverage is silently
-        dropped. The lazy-merge helper in routes.py doesn't strictly
-        need the per-input `.bai`s (samtools merge of sorted inputs
-        works without them), but the accumulator path does, so we
-        index unconditionally.
+        The classifier (LOGBOOK section 4.3) is responsible for
+        producing a coordinate-sorted, indexed BAM at
+        `runs/<basename>_sorted.bam`. Without the index the
+        accumulator's `pysam.count_coverage` would raise `fetch called
+        on bamfile without index` and the whole batch's coverage would
+        be silently dropped — that contract is part of the
+        `Classifier.align` docstring.
 
         Per-batch cost is O(reads in this batch); the previous design
         re-merged AND re-sorted the cumulative BAM here, which was
-        O(cumulative). Adding the per-batch `samtools index` costs ~50
-        ms on a typical ~10 MB per-FASTQ BAM, still well within the
-        constant-time budget proven in PR #9.
+        O(cumulative). See LOGBOOK section 4.1.
         """
         index_file = self.get_index_file()
         if not index_file:
             return
 
-        sorted_bam_output = os.path.join(self.runs_dir, f'{os.path.basename(src_path)}_sorted.bam')
         os.makedirs(self.runs_dir, exist_ok=True)
-        cmd = f'minimap2 -a {index_file} {src_path} | samtools view -b | samtools sort -o {sorted_bam_output}'
+        basename = os.path.basename(src_path)
         try:
-            logger.debug(f"Running command: {cmd}")
-            subprocess.run(cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error aligning FASTQ file {src_path}: {e.stderr.decode()}")
+            sorted_bam_output = str(self.classifier.align(
+                fastq_path=src_path,
+                index_path=index_file,
+                output_dir=self.runs_dir,
+                output_basename=basename,
+            ))
+        except Exception as e:
+            logger.error(f"Classifier {self.classifier.name} failed on {src_path}: {e}", exc_info=True)
             return
 
         if not self.is_bam_valid(sorted_bam_output):
@@ -362,7 +376,10 @@ class FileHandler(FileSystemEventHandler):
                 os.remove(sorted_bam_output)
             return
 
-        # Index so the accumulator can call pysam.count_coverage on it.
+        # Defence in depth: the Classifier.align contract says it must
+        # leave a .bai sibling, but old plug-ins or external authors
+        # might miss this. If the contract was already met this is a
+        # cheap no-op (mtime check inside _ensure_bam_index).
         if not self._ensure_bam_index(sorted_bam_output):
             return
 
@@ -418,12 +435,30 @@ class FileHandler(FileSystemEventHandler):
             return False
 
     def get_index_file(self) -> str | None:
-        """Retrieve the database index file (.mmi)."""
+        """Resolve the classifier's index path.
+
+        Preferred source: `alertinfo.cfg['indexPath']`, written by
+        `tasks.int_download_database` after `classifier.build_index()`
+        runs. Non-minimap2 plug-ins may produce files with arbitrary
+        extensions (or even directories), so the explicit path is the
+        only correct lookup in general.
+
+        Fallback: legacy projects whose alertinfo.cfg predates the
+        classifier protocol have no `indexPath` key but do have an
+        `.mmi` under `database/`. Glob for that so existing setups
+        keep working without a manual migration.
+        """
+        cfg_path = self.config.get('indexPath')
+        if cfg_path and os.path.exists(cfg_path):
+            return cfg_path
         files = glob.glob(os.path.join(self.app_loc, 'database', '*.mmi'))
-        if not files:
-            logger.error("No MMI files found in database location")
-            return None
-        return files[0]
+        if files:
+            return files[0]
+        logger.error(
+            "No classifier index found — neither alertinfo.cfg['indexPath'] "
+            f"nor a fallback *.mmi under {self.app_loc}/database/"
+        )
+        return None
 
     def calculate_and_record_coverage(self, batch_bam_path: str, timestamp: str = None):
         """Fold one batch BAM into the rolling accumulator, then emit
