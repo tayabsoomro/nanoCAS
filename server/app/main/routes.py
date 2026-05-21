@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from . import main
 from .utils import LinuxNotification
 from .utils.directory_scanner import scan_directory, parse_summary_combined
+from .classifiers import available_classifiers
 
 try:
     from eventlet import tpool
@@ -36,6 +37,19 @@ _RUN_HEALTH_CACHE: dict[str, dict] = {}
 @main.route('/version', methods=['GET'])
 def version():
     return json.dumps({"version": "v0.0.2", "name": "nanocas PoC"})
+
+
+@main.route('/list_classifiers', methods=['GET'])
+def list_classifiers():
+    """Return the registered classifier plug-ins (LOGBOOK §4.3).
+
+    Each entry: `{name, display_name, available}`. The `available` flag
+    reflects whether the underlying binary is on PATH right now, so a
+    future wizard step can grey out plug-ins whose dependencies aren't
+    installed without crashing at index-build time.
+    """
+    return jsonify(available_classifiers())
+
 
 @main.route('/check_database_status', methods=['GET'])
 def check_database_status():

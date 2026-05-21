@@ -1,12 +1,14 @@
 import os
-import subprocess
 import shutil
 import datetime
 import json
 import sys
 import logging
+from pathlib import Path
 from Bio import SeqIO
 from typing import Callable, Optional
+
+from ..classifiers import get_classifier
 
 logger = logging.getLogger('nanocas')
 if not logger.handlers:
@@ -21,7 +23,13 @@ if not logger.handlers:
 def int_download_database(db_data: dict, nanocas_location: str, queries: list,
                           progress_callback: Optional[Callable] = None):
     """
-    Build a minimap2 index from query sequences.
+    Build a classifier index from the user's query sequences.
+
+    The classifier itself is pluggable (LOGBOOK section 4.3); whichever
+    one is named in `alertinfo.cfg['classifier']` (default "minimap2")
+    gets resolved here and asked to `build_index()`. The path it writes
+    is then stored back in `alertinfo.cfg['indexPath']` so FileHandler
+    can find it without globbing for a specific extension.
 
     Args:
         db_data: Contains 'minion', 'projectId', 'device'.
@@ -49,7 +57,6 @@ def int_download_database(db_data: dict, nanocas_location: str, queries: list,
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     input_sequences_path = os.path.join(database_dir, f"{timestamp}.fa")
-    db_index_path = os.path.join(database_dir, f"{timestamp}.mmi")
     alertinfo_cfg_path = os.path.join(nanocas_location, 'alertinfo.cfg')
 
     try:
@@ -104,8 +111,27 @@ def int_download_database(db_data: dict, nanocas_location: str, queries: list,
             logger.error("No sequences written — cannot build index")
             return "ER_NO_SEQUENCES"
 
-        # Persist device back to alertinfo.cfg
+        # Resolve the configured classifier (default: minimap2). The
+        # `classifier` field in alertinfo.cfg is optional so older
+        # projects keep working unchanged.
+        classifier_name = alertinfo_cfg.get('classifier', 'minimap2')
+        try:
+            classifier = get_classifier(classifier_name)
+        except ValueError as e:
+            logger.error(f"Unknown classifier in alertinfo.cfg: {e}")
+            return "ER_CLASSIFIER_UNKNOWN"
+        if not classifier.is_available():
+            logger.error(
+                f"Classifier {classifier_name!r} is registered but its "
+                f"underlying binary isn't installed on PATH."
+            )
+            return "ER_CLASSIFIER_UNAVAILABLE"
+
+        # Persist device + classifier name back to alertinfo.cfg.
+        # Writing classifier here (even if it was already there)
+        # canonicalises the value the rest of the pipeline reads.
         alertinfo_cfg['device'] = device
+        alertinfo_cfg['classifier'] = classifier.name
         try:
             with open(alertinfo_cfg_path, 'w') as f:
                 json.dump(alertinfo_cfg, f)
@@ -113,23 +139,36 @@ def int_download_database(db_data: dict, nanocas_location: str, queries: list,
             logger.error(f"Failed to update alertinfo.cfg: {e}")
             return "ER_ALERTINFO_WRITE"
 
-        # Build minimap2 index
-        update_progress(55, "Building the minimap2 index…")
-        index_cmd = ["minimap2", "-x", "map-ont", "-d", db_index_path, input_sequences_path]
-        build_log_path = os.path.join(database_dir, 'building_index.txt')
+        # Build the index via the classifier plug-in. The classifier
+        # owns its own progress messaging; we just forward the
+        # callback through. Errors get logged at the classifier and
+        # re-raised, so any exception here is fatal to this build.
+        update_progress(55, f"Building the {classifier.display_name} index…")
         try:
-            with open(build_log_path, 'w') as log_file:
-                result = subprocess.run(index_cmd, stdout=log_file, stderr=log_file)
-            if result.returncode != 0:
-                logger.error(f"minimap2 exited with code {result.returncode}. See {build_log_path}")
-                return "ER_MINIMAP2"
-            logger.debug(f"minimap2 index built at {db_index_path}")
+            db_index_path = classifier.build_index(
+                fasta_paths=[Path(input_sequences_path)],
+                output_dir=Path(database_dir),
+                progress_callback=update_progress,
+            )
         except FileNotFoundError:
-            logger.error("minimap2 not found — is it installed?")
-            return "ER_MINIMAP2_NOTFOUND"
+            logger.error(f"{classifier.name} binary not found on PATH")
+            return "ER_CLASSIFIER_NOTFOUND"
         except Exception as e:
-            logger.error(f"Unexpected error running minimap2: {e}")
-            return "ER_MINIMAP2_UNKNOWN"
+            logger.error(f"{classifier.name} index build failed: {e}", exc_info=True)
+            return "ER_INDEX_BUILD"
+        logger.debug(f"{classifier.name} index built at {db_index_path}")
+
+        # Store the index path so FileHandler doesn't have to guess
+        # at an extension. Past versions globbed for *.mmi, which
+        # broke the moment a non-minimap2 plug-in produced a different
+        # file shape.
+        alertinfo_cfg['indexPath'] = str(db_index_path)
+        try:
+            with open(alertinfo_cfg_path, 'w') as f:
+                json.dump(alertinfo_cfg, f)
+        except Exception as e:
+            logger.error(f"Failed to write indexPath to alertinfo.cfg: {e}")
+            return "ER_ALERTINFO_WRITE"
 
         # Initialise coverage.csv
         coverage_file = os.path.join(nanocas_location, 'coverage.csv')
