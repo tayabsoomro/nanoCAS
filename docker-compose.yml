@@ -1,94 +1,37 @@
-version: '3'
-
+# nanoCAS: backend (Flask + Socket.IO + minimap2/samtools) and frontend (nginx).
+#
+#   docker compose up --build
+#   open http://localhost:3000
+#
+# Mount the sequencer output directory into the backend container at the
+# same path MinKNOW uses so the paths you enter in the wizard resolve.
 services:
-  # Frontend service
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - REACT_APP_API_URL=http://localhost:5007
-    depends_on:
-      - backend
-    networks:
-      - nanocas-network
-    restart: unless-stopped
-
-  # Backend service
   backend:
     build:
       context: ./server
-      dockerfile: Dockerfile
     ports:
-      - "5007:5007"
+      - "${BACKEND_PORT:-5007}:5007"
     volumes:
-      - ./server:/app
-      - ~/.nanocas:/root/.nanocas
+      - nanocas-workspace:/root/.nanocas
+      # Example: expose a MinKNOW data directory read-only.
+      # - /var/lib/minknow/data:/var/lib/minknow/data:ro
     environment:
-      - FLASK_ENV=development
-      - FLASK_APP=nanocas.py
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-    networks:
-      - nanocas-network
+      - SECRET_KEY=${SECRET_KEY:-}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+      - NANOCAS_THREADS=${NANOCAS_THREADS:-4}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
     restart: unless-stopped
 
-  # Redis for task queue
-  redis:
-    image: redis:alpine
+  frontend:
+    build:
+      context: ./frontend
     ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - nanocas-network
-    restart: unless-stopped
-
-  # Celery worker for distributed tasks
-  celery-worker:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    command: celery -A app.main.utils.tasks worker --loglevel=info
-    volumes:
-      - ./server:/app
-      - ~/.nanocas:/root/.nanocas
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - redis
       - backend
-    networks:
-      - nanocas-network
     restart: unless-stopped
-
-  # Celery beat for scheduled tasks
-  celery-beat:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    command: celery -A app.main.utils.tasks beat --loglevel=info
-    volumes:
-      - ./server:/app
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
-      - backend
-    networks:
-      - nanocas-network
-    restart: unless-stopped
-
-networks:
-  nanocas-network:
-    driver: bridge
 
 volumes:
-  redis-data:
+  nanocas-workspace:

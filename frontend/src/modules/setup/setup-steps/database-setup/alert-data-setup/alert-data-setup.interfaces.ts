@@ -10,13 +10,20 @@ type IQuery = {
     depth_threshold?: string,
     alert_on_breadth: boolean,
     breadth_threshold?: string,
-    currrent_breadth?: number,
-    current_deth?: number,
     header?: string,
-    headers?: string[]
+    headers?: string[],
+    description?: string,
+    length?: number,
+}
+
+type IFastaRecord = {
+    id: string,
+    description: string,
+    length: number,
 }
 
 export type {
     IAlertData,
-    IQuery
+    IQuery,
+    IFastaRecord
 }

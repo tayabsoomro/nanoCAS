@@ -1,17 +1,10 @@
 import React, {FunctionComponent, useEffect, useState} from 'react';
 import {IDatabaseSetupConstituent, ILocationConfig} from "../database-setup.interfaces";
 import { OverlayTrigger, Tooltip } from 'react-bootstrap';
-import axios from 'axios';
+import { api } from '../../../../../api';
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
-
-type IKeys = "nanoporeLocation"
-const initial_location_config: ILocationConfig = {
-    nanoporeLocation: ""
-}
-
-const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILocationConfig>> = ({updateConfig}) => {
-    const [locationConfig, setLocationConfig] = useState(initial_location_config);
+const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILocationConfig>> = ({initialConfig, updateConfig}) => {
+    const [locationConfig, setLocationConfig] = useState<ILocationConfig>(initialConfig);
     const [error, setError] = useState("");
     const [defaultPath, setDefaultPath] = useState("");
     const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
@@ -19,32 +12,24 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
     const [uploading, setUploading] = useState(false);
 
     useEffect(() => {
-        axios.get(`${API_ENDPOINT}/get_default_nanopore_path`)
+        api.get('/get_default_nanopore_path')
             .then(res => {
                 const path = res.data.path;
                 setDefaultPath(path);
-                setLocationConfig(prev => {
-                    if (!prev.nanoporeLocation) {
-                        return { ...prev, nanoporeLocation: path };
-                    }
-                    return prev;
-                });
+                setLocationConfig(prev => prev.nanoporeLocation ? prev : { ...prev, nanoporeLocation: path });
             })
             .catch(err => console.error("Could not fetch default nanopore path", err));
     }, []);
 
-    const handleDataChange = (key: IKeys) => (evt: React.ChangeEvent<HTMLInputElement>) => {
+    useEffect(() => {
+        updateConfig(locationConfig);
+    }, [locationConfig, updateConfig]);
+
+    const handleDataChange = (key: keyof ILocationConfig) => (evt: React.ChangeEvent<HTMLInputElement>) => {
         const value = evt.target.value;
         setLocationConfig((prev) => ({...prev, [key]: value}));
-        setError(value ? "" : "Nanopore directory is required.");
+        if (key === 'nanoporeLocation') setError(value ? "" : "Nanopore directory is required.");
     };
-
-    useEffect(() => {
-        updateConfig((prevState: any) => ({
-            ...prevState,
-            nanoporeLocation: locationConfig.nanoporeLocation
-        }));
-    }, [locationConfig, updateConfig]);
 
     const handleFastaUpload = async (evt: React.ChangeEvent<HTMLInputElement>) => {
         const files = evt.target.files;
@@ -57,9 +42,7 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
         }
         formData.append('target_dir', locationConfig.nanoporeLocation);
         try {
-            const res = await axios.post(`${API_ENDPOINT}/upload_reference`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            const res = await api.post('/upload_reference', formData);
             setUploadedFiles(prev => [...prev, ...res.data.uploaded]);
             setUploadStatus(`Successfully uploaded ${res.data.uploaded.length} file(s).`);
         } catch (err: any) {
@@ -79,11 +62,27 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
     return (
         <div className="col-lg-7 m-0 container">
             <br/>
-            <h4>Nanopore Location</h4>
+            <h4>Project</h4>
+            <div className="row align-items-center">
+                <div className="col">
+                    <input
+                        name="projectName"
+                        className="form-control"
+                        placeholder="Project name (optional), e.g. Field sample 12 / FluA screen"
+                        type="text"
+                        maxLength={80}
+                        value={locationConfig.projectName}
+                        onChange={handleDataChange("projectName")}
+                    />
+                </div>
+            </div>
+            <div className="vspacer-20"/>
+            <h4>Nanopore output directory</h4>
             <p>
-                Enter the server-side directory where Nanopore data is (or will be) stored.
-                When running locally alongside a sequencer, paste the sequencer output path.
-                In a cloud or browser environment, use the default path and upload a reference genome (FASTA) below.
+                The server-side directory where MinKNOW writes basecalled reads for this run (typically the
+                <code> fastq_pass</code> folder of the run). nanoCAS watches it for new FASTQ files and looks for
+                the run's <code>sequencing_summary</code> file in it and its parent. The directory is created if
+                it does not exist yet, so the project can be prepared before the run starts.
             </p>
             <div className="vspacer-10"/>
             <div className="row ml-auto align-items-center">
@@ -95,7 +94,7 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
                         <input
                             name="nanoporeLocationText"
                             className={`form-control ${error ? 'is-invalid' : ''}`}
-                            placeholder="/path/to/minion/dropbox"
+                            placeholder="/data/<experiment>/<sample>/<run>/fastq_pass"
                             type="text"
                             value={locationConfig.nanoporeLocation}
                             onChange={handleDataChange("nanoporeLocation")}
@@ -120,13 +119,13 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
             <div className="vspacer-20"/>
             <div className="card border-secondary">
                 <div className="card-header bg-light">
-                    <strong>Upload Reference Genome (FASTA)</strong>
-                    <span className="text-muted small ml-2">(optional — for cloud/browser environments)</span>
+                    <strong>Upload reads for offline analysis (optional)</strong>
                 </div>
                 <div className="card-body">
                     <p className="text-muted small mb-2">
-                        Upload a reference genome as <code>.fasta</code>, <code>.fa</code>, <code>.fna</code>, <code>.fasta.gz</code>, <code>.fa.gz</code>, or <code>.fna.gz</code>
-                        directly to the directory above. When running alongside a live sequencer, this step is not needed — the sequencer will populate the directory automatically.
+                        When nanoCAS is not running next to the sequencer you can upload files into the directory above
+                        instead. Note that reads must be <code>.fastq</code> / <code>.fastq.gz</code> to be processed; FASTA
+                        files uploaded here are only stored.
                     </p>
                     <input
                         type="file"
@@ -136,9 +135,7 @@ const LocationsSetupComponent: FunctionComponent<IDatabaseSetupConstituent<ILoca
                         disabled={uploading || !locationConfig.nanoporeLocation}
                         onChange={handleFastaUpload}
                     />
-                    {uploading && (
-                        <div className="mt-2 text-primary small">Uploading...</div>
-                    )}
+                    {uploading && <div className="mt-2 text-primary small">Uploading...</div>}
                     {uploadStatus && (
                         <div className={`mt-2 small alert ${uploadStatus.startsWith("Successfully") ? "alert-success" : "alert-danger"} py-1 px-2`}>
                             {uploadStatus}

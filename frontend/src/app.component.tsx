@@ -5,10 +5,9 @@ import Footer from './components/Footer';
 import ProjectList from './modules/project/ProjectList';
 import ProjectDetail from './modules/project/ProjectDetail';
 import SetupComponent from './modules/setup/setup.component';
+import { API_ENDPOINT } from './api';
 import './styles/theme.css';
 import './app.component.css';
-
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 export const io = require('socket.io-client');
 const socketUrl = API_ENDPOINT || window.location.origin;

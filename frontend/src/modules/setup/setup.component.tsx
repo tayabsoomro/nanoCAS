@@ -6,22 +6,13 @@ import AlertNotifSetupComponent from './setup-steps/alert-notif-setup/alert-noti
 import SummaryComponent from "./setup-steps/summary/summary.component";
 import "./setup.component.css";
 import {
-    IAlertData
-} from "./setup-steps/database-setup/alert-data-setup/alert-data-setup.interfaces";
-import {
     IDatabseSetupInput
 } from "./setup-steps/database-setup/database-setup.interfaces";
 import {IAlertNotifSetupInput} from "./setup-steps/alert-notif-setup/alert-notif-setup.interfaces";
 
-const qrs: IAlertData = {
-    queries: [
-        {name: "", file: "", depth_threshold: "", current_deth: 0, alert_on_depth: false, breadth_threshold: "", alert_on_breadth: false, currrent_breadth: 0, header: ""},
-    ]
-};
-
 const initial_db_setup_input: IDatabseSetupInput = {
-    queries  : qrs.queries,
-    locations: {nanoporeLocation: ""},
+    queries  : [],
+    locations: {nanoporeLocation: "", projectName: ""},
     device: {device: ""}
 };
 
@@ -32,9 +23,11 @@ const initial_alert_notif_setup_input: IAlertNotifSetupInput = {
 
 const SetupComponent = () => {
     const [stepNumber, setStepNumber] = useState(0);
+    // Wizard state is owned here and handed back to each step as
+    // `initial`, so going back a step no longer wipes what was entered.
     const [databaseSetupInput, setDatasetSetupInput] = useState(initial_db_setup_input);
     const [alertNotifSetupInput, setAlertNotifSetupInput] = useState(initial_alert_notif_setup_input);
- 
+
     const advanceStep = () => {
         if (stepNumber < (steps.length - 1)) {
             setStepNumber((prev) => prev + 1)
@@ -43,12 +36,12 @@ const SetupComponent = () => {
 
     const steps: ISteps[] = [
         {
-            name: "alert database",
-            component: <DatabaseSetupComponent advanceStep={advanceStep} update={setDatasetSetupInput} />,
+            name: "sequences & location",
+            component: <DatabaseSetupComponent advanceStep={advanceStep} update={setDatasetSetupInput} initial={databaseSetupInput} />,
         },
         {
-            name: "notification",
-            component: <AlertNotifSetupComponent advanceStep={advanceStep} update={setAlertNotifSetupInput} />,
+            name: "alerts & notifications",
+            component: <AlertNotifSetupComponent advanceStep={advanceStep} update={setAlertNotifSetupInput} initial={alertNotifSetupInput} />,
         },
         {
             name: "summary",
@@ -60,7 +53,7 @@ const SetupComponent = () => {
         <div className="container-fluid d-flex flex-column">
             <div className="vspacer-50"/>
             <div className="container-fluid text-center">
-                <h3>nanoCAS Setup Wizard</h3>
+                <h3>New nanoCAS project</h3>
                 <p>Step {stepNumber + 1} of {steps.length}</p>
             </div>
             <div className="vspacer-20"/>

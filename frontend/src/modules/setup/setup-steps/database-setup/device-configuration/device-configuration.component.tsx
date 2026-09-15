@@ -1,60 +1,61 @@
 import React, {FunctionComponent, useEffect, useState} from "react";
-import axios from "axios";
 import {IDatabaseSetupConstituent} from "../database-setup.interfaces";
 import { IDeviceConfig } from "./device-configuration.interfaces";
+import { api } from "../../../../../api";
 
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
-
-const AlertConfigurationComponent: FunctionComponent<IDatabaseSetupConstituent<IDeviceConfig>> = ({updateConfig}) => {
+/**
+ * Optional MinKNOW position picker. When a position is selected, alerts
+ * are also posted into the MinKNOW UI of that instrument and the
+ * run-health monitor reads its live acquisition state.
+ */
+const DeviceConfigurationComponent: FunctionComponent<IDatabaseSetupConstituent<IDeviceConfig>> = ({initialConfig, updateConfig}) => {
     const [devices, setDevices] = useState<string[]>([]);
     const [loaded, setLoaded] = useState(false);
-    const [selectedDevice, setSelectedDevice] = useState("");
+    const [failed, setFailed] = useState(false);
+    const [selectedDevice, setSelectedDevice] = useState(initialConfig.device || "");
 
     useEffect(() => {
-        (async () => {
-            const res = await get_devices();
-            setDevices(res.data);
-            setLoaded(true);
-        })();
+        let cancelled = false;
+        api.get('/index_devices')
+            .then(res => { if (!cancelled) setDevices(Array.isArray(res.data) ? res.data : []); })
+            .catch(() => { if (!cancelled) setFailed(true); })
+            .finally(() => { if (!cancelled) setLoaded(true); });
+        return () => { cancelled = true; };
     }, []);
 
     useEffect(() => {
-        updateConfig((prevState: any) => ({
-            ...prevState,
-            device: selectedDevice
-        }));
+        updateConfig({ device: selectedDevice });
     }, [selectedDevice, updateConfig]);
 
-    const get_devices = () => {
-        return axios({
-            method: 'GET',
-            url: `${API_ENDPOINT}/index_devices`
-        });
-    };
-
-    return loaded ? (
-        <div className="col-lg-5 m-0 container">
+    return (
+        <div className="col-lg-4 m-0 container">
             <br/>
-            <h4>Device Selection</h4>
-            <p>Select a device or choose to run without one.</p>
-            <div className="vspacer-20"/>
-            <div className="row ml-auto">
-                <select
-                    className="form-control"
-                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDevice(e.target.value)}
-                    value={selectedDevice}
-                >
-                    <option value="">Run without device</option>
-                    {devices.map((device: string) => (
-                        <option key={device} value={device}>{device}</option>
-                    ))}
-                </select>
-            </div>
+            <h4>MinKNOW device (optional)</h4>
+            <p className="text-muted small">
+                If MinKNOW runs on this machine, pick the flow-cell position to receive alerts inside MinKNOW and
+                to let nanoCAS read the live acquisition state.
+            </p>
+            {!loaded ? (
+                <div className="text-muted small"><i className="fa fa-spinner fa-spin"/> Searching for devices…</div>
+            ) : (
+                <>
+                    <select
+                        className="form-control"
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSelectedDevice(e.target.value)}
+                        value={selectedDevice}
+                    >
+                        <option value="">Run without a device</option>
+                        {devices.map((device: string) => (
+                            <option key={device} value={device}>{device}</option>
+                        ))}
+                    </select>
+                    {failed && <div className="text-muted small mt-1">Could not query MinKNOW.</div>}
+                    {!failed && devices.length === 0 && <div className="text-muted small mt-1">No MinKNOW positions found (MinKNOW not running or not reachable on localhost).</div>}
+                </>
+            )}
             <br/>
         </div>
-    ) : (
-        <div className="text-muted"><i className="fa fa-spinner fa-spin"/> Searching For Devices...</div>
     );
 };
 
-export default AlertConfigurationComponent;
+export default DeviceConfigurationComponent;
