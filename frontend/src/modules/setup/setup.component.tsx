@@ -33,32 +33,29 @@ const SetupComponent = () => {
             setStepNumber((prev) => prev + 1)
         }
     }
+    const goBack = () => setStepNumber(prev => Math.max(0, prev - 1));
 
     const steps: ISteps[] = [
         {
-            name: "sequences & location",
+            name: "sequences & run",
             component: <DatabaseSetupComponent advanceStep={advanceStep} update={setDatasetSetupInput} initial={databaseSetupInput} />,
         },
         {
-            name: "alerts & notifications",
-            component: <AlertNotifSetupComponent advanceStep={advanceStep} update={setAlertNotifSetupInput} initial={alertNotifSetupInput} />,
+            name: "alerts",
+            component: <AlertNotifSetupComponent advanceStep={advanceStep} update={setAlertNotifSetupInput} initial={alertNotifSetupInput} goBack={goBack} />,
         },
         {
-            name: "summary",
-            component: <SummaryComponent databaseSetupInput={databaseSetupInput} alertNotifSetupInput={alertNotifSetupInput} />
+            name: "review",
+            component: <SummaryComponent databaseSetupInput={databaseSetupInput} alertNotifSetupInput={alertNotifSetupInput} goBack={goBack} />
         }
     ]
 
     return (
-        <div className="container-fluid d-flex flex-column">
-            <div className="vspacer-50"/>
-            <div className="container-fluid text-center">
-                <h3>New nanoCAS project</h3>
-                <p>Step {stepNumber + 1} of {steps.length}</p>
-            </div>
-            <div className="vspacer-20"/>
-            <div className="module-stepbar d-flex">
-                <ul className="steps six clearfix justify-content-center">
+        <div className="nano-wizard">
+            <h3>New project</h3>
+            <p className="nano-wizard-sub">Tell nanoCAS what to watch and what to alert on. Three short steps.</p>
+            <div className="module-stepbar">
+                <ul className="steps">
                     {steps.map((s, i) => (
                         <li key={i} className={stepNumber === i ? 'active' : (stepNumber > i ? 'done' : '')}>
                             <span className="step-no">{i + 1}</span>{s.name}
@@ -66,15 +63,7 @@ const SetupComponent = () => {
                     ))}
                 </ul>
             </div>
-            <div className="container p-0">
-                {steps[stepNumber].component}
-            </div>
-            {stepNumber > 0 && (
-                <button className="btn btn-outline-danger m-2 mx-auto w-20" onClick={() => setStepNumber((prev) => prev - 1)}>
-                    Previous
-                </button>
-            )}
-            <div className="vspacer-20"/>
+            {steps[stepNumber].component}
         </div>
     );
 }

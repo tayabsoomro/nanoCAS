@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link, useHistory } from "react-router-dom";
 import { socket } from "../../app.component";
+import { Dropdown } from "react-bootstrap";
 import { api, AlertRecord } from "../../api";
 import CoverageTab from "./tabs/CoverageTab";
 import RunHealthTab from "./tabs/RunHealthTab";
@@ -14,6 +15,20 @@ interface ProjectParams {
     id: string;
     tab?: string;
 }
+
+interface SimulationStatus {
+    scenario: string;
+    label: string;
+    running: boolean;
+    finished: boolean;
+    error: string | null;
+    batches_written: number;
+    total_batches: number;
+    reads_written: number;
+    run_time_seconds: number;
+}
+
+interface Scenario { id: string; label: string; summary: string; expect: string[] }
 
 interface FileProgress {
     files_processed: number;
@@ -42,6 +57,10 @@ const ProjectDetail: React.FC = () => {
     const [banner, setBanner] = useState<AlertRecord | null>(null);
     const [toasts, setToasts] = useState<AlertRecord[]>([]);
     const [unseenAlerts, setUnseenAlerts] = useState(0);
+    const [simulation, setSimulation] = useState<SimulationStatus | null>(null);
+    const [scenarios, setScenarios] = useState<Scenario[]>([]);
+    const [simError, setSimError] = useState<string | null>(null);
+    const [simBusy, setSimBusy] = useState(false);
     const activeTabRef = useRef(activeTab);
     activeTabRef.current = activeTab;
 
@@ -113,6 +132,20 @@ const ProjectDetail: React.FC = () => {
         const progressInterval = setInterval(fetchProgress, POLL_MS);
         const coverageInterval = setInterval(fetchCoverage, POLL_MS);
 
+        const fetchSimulation = async () => {
+            try {
+                const res = await api.get(`/simulation/status?projectId=${id}`);
+                setSimulation(res.data.status);
+            } catch { }
+        };
+        fetchSimulation();
+        const simInterval = setInterval(fetchSimulation, 5000);
+        api.get('/simulation/scenarios').then(res => setScenarios(res.data.scenarios || [])).catch(() => { });
+        const handleSimulation = (data: any) => {
+            if (data.projectId === id) setSimulation(data);
+        };
+        socket.on('simulation_update', handleSimulation);
+
         socket.emit('check_fastq_file_listener', { projectId: id });
 
         const handleStatus = (data: any) => {
@@ -162,6 +195,8 @@ const ProjectDetail: React.FC = () => {
             clearInterval(progressInterval);
             clearInterval(coverageInterval);
             clearInterval(dbInterval);
+            clearInterval(simInterval);
+            socket.off('simulation_update', handleSimulation);
             socket.off('fastq_file_listener_status', handleStatus);
             socket.off('fastq_file_listener_started', handleStarted);
             socket.off('fastq_file_listener_stopped', handleStopped);
@@ -185,6 +220,50 @@ const ProjectDetail: React.FC = () => {
 
     const handleStopListener = () => {
         socket.emit('stop_fastq_file_listener', { projectId: id });
+    };
+
+    const startSimulation = async (scenario: string) => {
+        setSimBusy(true);
+        setSimError(null);
+        try {
+            const res = await api.post('/simulation/start', { projectId: id, scenario });
+            setSimulation(res.data.status);
+            setListenerRunning(true);
+            setBanner(null);
+            fetchProgress();
+            fetchCoverage();
+        } catch (err: any) {
+            setSimError(err?.response?.data?.error || 'Could not start the simulation.');
+        } finally {
+            setSimBusy(false);
+        }
+    };
+
+    const stopSimulation = async () => {
+        setSimBusy(true);
+        try {
+            await api.post('/simulation/stop', { projectId: id });
+            setSimulation(prev => prev ? { ...prev, running: false } : prev);
+        } finally {
+            setSimBusy(false);
+        }
+    };
+
+    const resetRun = async () => {
+        setSimBusy(true);
+        setSimError(null);
+        try {
+            await api.post('/simulation/reset', { projectId: id });
+            setSimulation(null);
+            setBanner(null);
+            setFileProgress(null);
+            fetchProgress();
+            fetchCoverage();
+        } catch (err: any) {
+            setSimError(err?.response?.data?.error || 'Could not reset the run.');
+        } finally {
+            setSimBusy(false);
+        }
     };
 
     if (loading) {
@@ -213,7 +292,10 @@ const ProjectDetail: React.FC = () => {
             <div className="nano-project-header">
                 <div className="nano-project-header-left">
                     <Link to="/" className="nano-back-link">&larr; Projects</Link>
-                    <h2 className="nano-project-title" title={id}>{title}</h2>
+                    <h2 className="nano-project-title" title={id}>
+                        {title}
+                        {projectData.demo && <span className="nano-badge nano-badge-info nano-title-tag">demo</span>}
+                    </h2>
                     <span className="nano-project-path">{projectData.minion}</span>
                     {fileProgress && (fileProgress.files_processed > 0 || fileProgress.files_failed > 0) && (
                         <span className="nano-progress-indicator" title={fileProgress.last_file ?? ''}>
@@ -229,6 +311,30 @@ const ProjectDetail: React.FC = () => {
                     )}
                 </div>
                 <div className="nano-project-header-right">
+                    {simulation?.running ? (
+                        <button className="btn btn-outline-secondary btn-sm" onClick={stopSimulation} disabled={simBusy}>
+                            Stop simulation
+                        </button>
+                    ) : (
+                        <Dropdown>
+                            <Dropdown.Toggle variant="outline-secondary" size="sm" disabled={simBusy || !isDatabaseReady}>
+                                {simBusy ? 'Starting…' : 'Simulate a run'}
+                            </Dropdown.Toggle>
+                            <Dropdown.Menu align="end">
+                                {scenarios.map(s => (
+                                    <Dropdown.Item key={s.id} onClick={() => startSimulation(s.id)} title={s.summary}>
+                                        {s.label}
+                                    </Dropdown.Item>
+                                ))}
+                                {projectData.demo && (
+                                    <>
+                                        <Dropdown.Divider />
+                                        <Dropdown.Item onClick={resetRun}>Reset run data</Dropdown.Item>
+                                    </>
+                                )}
+                            </Dropdown.Menu>
+                        </Dropdown>
+                    )}
                     <span className={`nano-status-indicator ${listenerRunning ? 'active' : 'inactive'}`}>
                         <span className="nano-status-dot"></span>
                         {listenerRunning ? 'Monitoring' : 'Stopped'}
@@ -256,6 +362,23 @@ const ProjectDetail: React.FC = () => {
                         The reference index for this project has not been built yet (or the build failed). Monitoring
                         cannot start until a <code>.mmi</code> index exists under the project's database directory.
                     </span>
+                </div>
+            )}
+            {simulation && (simulation.running || simulation.finished) && (
+                <div className={`nano-alert-banner ${simulation.running ? 'info' : 'neutral'}`}>
+                    <span className="nano-alert-message">
+                        <strong>{simulation.running ? 'Simulating' : 'Simulation finished'}: {simulation.label}.</strong>{' '}
+                        {simulation.batches_written} of {simulation.total_batches} batches,{' '}
+                        {simulation.reads_written.toLocaleString()} reads, {Math.round(simulation.run_time_seconds / 60)} min of run time.
+                        {simulation.running && ' Expected: '}
+                        {simulation.running && ((scenarios.find(s => s.id === simulation.scenario)?.expect || []).join(', ') || 'no alerts')}
+                    </span>
+                </div>
+            )}
+            {simError && (
+                <div className="nano-alert-banner critical">
+                    <span className="nano-alert-message">{simError}</span>
+                    <button className="nano-alert-close" onClick={() => setSimError(null)} aria-label="Dismiss">&times;</button>
                 </div>
             )}
             {listenerError && (

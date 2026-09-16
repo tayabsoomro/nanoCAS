@@ -55,6 +55,9 @@ class AlertLog:
         self.project_dir = project_dir
         self.path = os.path.join(project_dir, self.FILENAME)
         self._lock = threading.Lock()
+        # Override to timestamp records with a synthetic clock (used when
+        # replaying a simulated run to seed a demo project's history).
+        self.clock = None
 
     def append(self, alert_type: str, severity: str, message: str, *,
                source: str = SOURCE_SYSTEM, details: dict | None = None,
@@ -63,7 +66,7 @@ class AlertLog:
             severity = SEVERITY_INFO
         record = {
             'id': str(uuid.uuid4()),
-            'timestamp': datetime.now().isoformat(timespec='seconds'),
+            'timestamp': (self.clock() if self.clock else datetime.now()).isoformat(timespec='seconds'),
             'projectId': project_id,
             'source': source,
             'type': alert_type,

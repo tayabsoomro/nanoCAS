@@ -3,19 +3,11 @@ import subprocess
 import shutil
 import datetime
 import json
-import sys
 import logging
 from Bio import SeqIO
 from typing import Callable, Optional
 
 logger = logging.getLogger('nanocas')
-if not logger.handlers:
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
 
 
 def int_download_database(db_data: dict, nanocas_location: str, queries: list,

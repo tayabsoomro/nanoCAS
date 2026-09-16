@@ -13,53 +13,41 @@ const DatabaseSetupComponent: FunctionComponent<IDatabaseSetupProps> = ({ advanc
     const [deviceConfig, setDeviceConfig] = useState<IDeviceConfig>(initial.device);
     const [error, setError] = useState<string>("");
 
-    const updateDatabaseSetupConfiguration = () => {
+    const next = () => {
         setError("");
         if (!locationConfig.nanoporeLocation.trim()) {
-            setError("The nanopore output directory is required.");
+            setError("Enter the directory the sequencer writes reads to.");
             return;
         }
         if (alertData.queries.length === 0) {
-            setError("Add at least one alert sequence (upload a FASTA and pick the sequences to monitor).");
+            setError("Add at least one sequence to watch for.");
             return;
         }
-        const invalidQueries = alertData.queries.filter(q =>
+        const invalid = alertData.queries.filter(q =>
             (q.alert_on_depth && (!q.depth_threshold || isNaN(parseFloat(q.depth_threshold)))) ||
             (q.alert_on_breadth && (!q.breadth_threshold || isNaN(parseFloat(q.breadth_threshold))))
         );
-        if (invalidQueries.length > 0) {
+        if (invalid.length > 0) {
             setError("Every enabled alert needs a numeric threshold.");
             return;
         }
-        update({
-            queries: alertData.queries,
-            gff_file: alertData.gff_file,
-            locations: locationConfig,
-            device: deviceConfig
-        });
+        update({ queries: alertData.queries, gff_file: alertData.gff_file, locations: locationConfig, device: deviceConfig });
         advanceStep();
     };
 
     return (
-        <div className="container-fluid vspacer-100 d-flex p-0 flex-column h-100">
-            <div className="vspacer-50" />
-            <div className="twline"><span>NANOPORE SETUP</span></div>
-            <div className="row justify-content-around">
+        <div>
+            <div className="nano-wizard-panel">
                 <LocationsSetupComponent initialConfig={locationConfig} updateConfig={setLocationConfig} />
                 <DeviceConfigurationComponent initialConfig={deviceConfig} updateConfig={setDeviceConfig} />
             </div>
-            <div className="vspacer-50" />
-            <div className="twline"><span>ALERT SEQUENCES</span></div>
-            <AlertDataSetup initialConfig={alertData} updateConfig={setAlertData} />
-            <br />
-            <div className="vspacer-50" />
-            <hr />
-            <br />
-            {error && <div className="mx-auto col-sm-8 alert alert-danger text-left">{error}</div>}
-            <div className="container text-center">
-                <button className="btn btn-success col-lg-2 mx-auto" onClick={updateDatabaseSetupConfiguration}>
-                    Next Step
-                </button>
+            <div className="nano-wizard-panel">
+                <AlertDataSetup initialConfig={alertData} updateConfig={setAlertData} />
+            </div>
+            {error && <div className="nano-alert-banner critical"><span className="nano-alert-message">{error}</span></div>}
+            <div className="nano-wizard-actions">
+                <span className="spacer" />
+                <button className="btn btn-primary" onClick={next}>Continue</button>
             </div>
         </div>
     );

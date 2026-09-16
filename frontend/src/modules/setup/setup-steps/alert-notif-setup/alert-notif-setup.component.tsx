@@ -5,7 +5,7 @@ import { api, RunHealthConfig, RUN_HEALTH_FIELDS } from '../../../../api';
 
 const EMPTY_EMAIL: IEmailConfig = { sender: '', recipient: '', smtpServer: '', smtpPort: 587, password: '' };
 
-const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ advanceStep, update, initial }) => {
+const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ advanceStep, goBack, update, initial }) => {
     const [enableEmail, setEnableEmail] = useState(initial.enableEmail);
     const [emailConfig, setEmailConfig] = useState<IEmailConfig>(initial.emailConfig || EMPTY_EMAIL);
     const [enableSMS, setEnableSMS] = useState(initial.enableSMS);
@@ -100,9 +100,9 @@ const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ ad
     };
 
     const row = (label: React.ReactNode, control: React.ReactNode, help?: string) => (
-        <div className="mb-3 d-flex flex-row align-items-start">
-            <label className="col-sm-4 col-form-label text-end pe-3">{label}</label>
-            <div className="col-sm-5">
+        <div className="nano-field-row">
+            <label>{label}</label>
+            <div>
                 {control}
                 {help && <div className="form-text">{help}</div>}
             </div>
@@ -110,18 +110,13 @@ const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ ad
     );
 
     return (
-        <div className="container-fluid vspacer-100 d-flex p-0 flex-column h-100" style={{ borderTop: "1px solid #CCC" }}>
-            <div className="vspacer-20"></div>
-            <p className="lead text-center">Notifications</p>
-            <p className="text-center text-muted small">
-                Alerts are always shown in the nanoCAS UI, written to the project's alert log and posted to a selected
-                MinKNOW device. Add e-mail and/or SMS to be notified away from the instrument.
-            </p>
-            <div className="container">
-                {error && <div className="mx-auto col-sm-8 alert alert-danger text-left">{error}</div>}
+        <div>
+            <div className="nano-wizard-panel">
+                <h4>Notifications</h4>
+                <p>Alerts always appear in nanoCAS and in its alert log. Add e-mail or SMS to be reached away from the instrument.</p>
 
-                {row(<h5 className="m-0">Email notifications</h5>,
-                    <input type="checkbox" className="form-check-input" checked={enableEmail} onChange={(e) => setEnableEmail(e.target.checked)} />)}
+                {row('Email',
+                    <div className="form-check"><input type="checkbox" className="form-check-input" id="enable-email" checked={enableEmail} onChange={(e) => setEnableEmail(e.target.checked)} /><label className="form-check-label" htmlFor="enable-email">Send alerts by e-mail</label></div>)}
                 {enableEmail && (
                     <>
                         {row('Sender', <input className="form-control" type="email" value={emailConfig.sender} onChange={handleEmailConfigChange("sender")} placeholder="sender@example.org" />)}
@@ -134,15 +129,15 @@ const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ ad
                     </>
                 )}
 
-                {row(<h5 className="m-0">SMS notifications</h5>,
-                    <input type="checkbox" className="form-check-input" checked={enableSMS} onChange={(e) => setEnableSMS(e.target.checked)} />,
+                {row('SMS',
+                    <div className="form-check"><input type="checkbox" className="form-check-input" id="enable-sms" checked={enableSMS} onChange={(e) => setEnableSMS(e.target.checked)} /><label className="form-check-label" htmlFor="enable-sms">Send alerts by SMS (Twilio)</label></div>,
                     twilioConfigured === false ? 'Twilio credentials are not configured on the server (.env); SMS cannot be sent until they are.' : undefined)}
                 {enableSMS && row('Recipient phone', <input className="form-control" type="tel" value={smsRecipient} onChange={(e) => setSmsRecipient(e.target.value)} placeholder="+15551234567" />)}
 
                 {(enableEmail || enableSMS) && (
-                    <div className="mb-3 d-flex flex-row">
-                        <div className="col-sm-4"></div>
-                        <div className="col-sm-5">
+                    <div className="nano-field-row">
+                        <label></label>
+                        <div>
                             <button type="button" className="btn btn-outline-primary btn-sm" onClick={sendTest} disabled={testing}>
                                 {testing ? 'Sending…' : 'Send test notification'}
                             </button>
@@ -156,15 +151,12 @@ const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ ad
                     </div>
                 )}
 
-                <hr />
-                <p className="lead text-center">Run-health alerts</p>
-                <p className="text-center text-muted small">
-                    Instrument-level checks evaluated continuously while monitoring: run never started, data stalled,
-                    read quality, pass rate and pore availability. Thresholds below are sensible defaults for a MinION
-                    R10.4 run; adjust for your chemistry.
-                </p>
-                {row(<h5 className="m-0">Enable run-health alerts</h5>,
-                    <input type="checkbox" className="form-check-input" checked={runHealth.enabled !== false} onChange={(e) => setRH('enabled', e.target.checked)} />)}
+            </div>
+            <div className="nano-wizard-panel">
+                <h4>Run-health alerts</h4>
+                <p>Checks on the run itself: never started, stalled, low read quality, dying pores. Defaults suit a MinION R10.4 run.</p>
+                {row('Enabled',
+                    <div className="form-check"><input type="checkbox" className="form-check-input" id="enable-rh" checked={runHealth.enabled !== false} onChange={(e) => setRH('enabled', e.target.checked)} /><label className="form-check-label" htmlFor="enable-rh">Evaluate run-health rules while monitoring</label></div>)}
                 {runHealth.enabled !== false && RUN_HEALTH_FIELDS.map(f => row(
                     <>{f.label}{f.unit ? <span className="text-muted small"> ({f.unit})</span> : null}</>,
                     <input className="form-control" type="number" min="0" step={f.step ?? 1}
@@ -173,13 +165,11 @@ const AlertNotifSetupComponent: FunctionComponent<IAlertNotifSetupProps> = ({ ad
                     f.help + (defaults ? ` Default: ${defaults[f.key]}.` : '')
                 ))}
             </div>
-            <div className="vspacer-50" />
-            <hr />
-            <br />
-            <div className="container text-center">
-                <button className="btn btn-success col-lg-2 mx-auto" onClick={updateAlertNotifSetupConfiguration}>
-                    Next Step
-                </button>
+            {error && <div className="nano-alert-banner critical"><span className="nano-alert-message">{error}</span></div>}
+            <div className="nano-wizard-actions">
+                <button className="btn btn-outline-secondary" onClick={goBack}>Back</button>
+                <span className="spacer" />
+                <button className="btn btn-primary" onClick={updateAlertNotifSetupConfiguration}>Continue</button>
             </div>
         </div>
     );

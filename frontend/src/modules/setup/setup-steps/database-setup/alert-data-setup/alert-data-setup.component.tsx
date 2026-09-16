@@ -41,16 +41,12 @@ const AlertDataSetup: FunctionComponent<IDatabaseSetupConstituent<IAlertData>> =
     }, [queries, gffFilePath, updateConfig]);
 
     return (
-        <div className="container">
-            <h4 className="">Alert Sequences</h4>
-            <p className="text-muted">
-                Upload one or more reference FASTA files and choose which sequences to monitor. Reads are aligned to
-                every selected sequence with minimap2; an alert fires when a sequence's depth or breadth of coverage
-                reaches its threshold.
-            </p>
+        <div>
+            <h4>Sequences to watch for</h4>
+            <p>Upload a reference FASTA and choose the sequences. Reads are aligned to each one; an alert fires when its depth or breadth of coverage reaches the threshold.</p>
             {queries.length === 0 ? (
-                <div className="text-center text-muted py-3">
-                    No alert sequences added yet. Click '+' below to add one.
+                <div className="nano-projects-empty" style={{ padding: 16 }}>
+                    <p>No sequences yet.</p>
                 </div>
             ) : (
                 <Table striped bordered hover responsive className="mt-3">
@@ -73,8 +69,8 @@ const AlertDataSetup: FunctionComponent<IDatabaseSetupConstituent<IAlertData>> =
                                 <td>{q.alert_on_depth ? `≥ ${q.depth_threshold}x` : <span className="text-muted">off</span>}</td>
                                 <td>{q.alert_on_breadth ? `≥ ${q.breadth_threshold}%` : <span className="text-muted">off</span>}</td>
                                 <td>
-                                    <Button variant="danger" size="sm" onClick={() => handleRemoveQuery(i)} aria-label="Remove sequence">
-                                        <i className="fa fa-trash-alt" />
+                                    <Button variant="outline-secondary" size="sm" onClick={() => handleRemoveQuery(i)} aria-label="Remove sequence">
+                                        Remove
                                     </Button>
                                 </td>
                             </tr>
@@ -82,22 +78,18 @@ const AlertDataSetup: FunctionComponent<IDatabaseSetupConstituent<IAlertData>> =
                     </tbody>
                 </Table>
             )}
-            <Form.Group className="mb-3">
-                <Form.Label>Optional: GFF file with regions of interest</Form.Label>
-                <Form.Control type="file" accept=".gff,.gff3,.txt" onChange={handleGffFileChange} />
-                <Form.Text className="text-muted">
-                    Regions whose seqid matches a selected reference are drawn on the alignment viewer.
-                </Form.Text>
-                {gffFilePath && <div className="small text-success">Uploaded: {gffFilePath.split('/').pop()}</div>}
-                {gffError && <div className="small text-danger">{gffError}</div>}
-            </Form.Group>
-            <div className="text-center">
-                <hr />
-                <Button variant="primary" onClick={() => setShowModal(true)} className="mt-3" aria-label="Add alert sequence">
-                    <i className="fa fa-plus" />
+            <div className="d-flex align-items-center gap-3 mt-3 flex-wrap">
+                <Button variant="primary" size="sm" onClick={() => setShowModal(true)} aria-label="Add sequences">
+                    + Add sequences
                 </Button>
-                <AddAlertModal show={showModal} onHide={() => setShowModal(false)} onAdd={handleAddQueries} />
+                <Form.Group className="mb-0 d-flex align-items-center gap-2">
+                    <Form.Label className="mb-0 nano-hint">Regions of interest (GFF, optional)</Form.Label>
+                    <Form.Control type="file" size="sm" accept=".gff,.gff3,.txt" onChange={handleGffFileChange} style={{ maxWidth: 260 }} />
+                </Form.Group>
+                {gffFilePath && <span className="nano-badge nano-badge-active">{gffFilePath.split('/').pop()}</span>}
+                {gffError && <span className="text-danger small">{gffError}</span>}
             </div>
+            <AddAlertModal show={showModal} onHide={() => setShowModal(false)} onAdd={handleAddQueries} />
         </div>
     );
 };

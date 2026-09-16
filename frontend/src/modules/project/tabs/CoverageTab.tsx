@@ -1,8 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Chart } from "react-google-charts";
 import { Dropdown } from "react-bootstrap";
+import {
+    Chart as ChartJS,
+    LinearScale,
+    LineElement,
+    PointElement,
+    Tooltip,
+    Legend,
+    Filler,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 import AlignmentViewer from "../../analysis/analysis-data/alignment-viewer.component";
 import { api, parseTimestamp, queryByReference } from "../../../api";
+
+ChartJS.register(LinearScale, LineElement, PointElement, Tooltip, Legend, Filler);
 
 interface CoverageTabProps {
     projectId: string;
@@ -27,7 +38,7 @@ type Metric = 'depth' | 'breadth';
 
 const UNIT_LABELS: Record<TimeUnit, string> = { seconds: 's', minutes: 'min', hours: 'h', days: 'd' };
 const UNIT_FACTORS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
-const SERIES_COLORS = ['#00B0BD', '#004E5A', '#FF6A45', '#27AE60', '#8E44AD', '#F39C12', '#2C3E50', '#C0392B'];
+const SERIES_COLORS = ['#0f4c5c', '#c0392b', '#2e7d4f', '#b7791f', '#6c5b7b', '#355c7d', '#7a4e2d', '#4b6f44'];
 
 const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, coverageData, coverageMap }) => {
     const [metric, setMetric] = useState<Metric>('depth');
@@ -55,9 +66,15 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
 
     useEffect(() => {
         if (!selectedReference && references.size > 0) {
-            setSelectedReference(references.keys().next().value ?? null);
+            // Prefer a reference that actually has an alert threshold so the
+            // chart opens with a threshold line.
+            const withAlert = Array.from(references.keys()).find(ref => {
+                const q = queries.get(ref);
+                return q && (q.alert_on_depth || q.alert_on_breadth);
+            });
+            setSelectedReference(withAlert ?? references.keys().next().value ?? null);
         }
-    }, [references, selectedReference]);
+    }, [references, selectedReference, queries]);
 
     const thresholdFor = (ref: string | null, m: Metric): number | null => {
         if (!ref) return null;
@@ -96,48 +113,71 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
         return () => { cancelled = true; };
     }, [selectedReference, projectId, coverageData.length]);
 
-    const formattedData = useMemo(() => {
+    const chart = useMemo(() => {
         const refs = Array.from(references.keys());
         const times = Array.from(new Set(coverageData.map(d => d.timestamp)))
             .map(t => ({ t, ms: parseTimestamp(t) }))
             .filter(x => !isNaN(x.ms))
             .sort((a, b) => a.ms - b.ms);
-        if (times.length === 0 || refs.length === 0) return [];
+        if (times.length === 0 || refs.length === 0) return null;
 
         const startTime = times[0].ms;
         const factor = UNIT_FACTORS[timeUnit];
-        const unit = metric === 'depth' ? 'x' : '%';
-
-        const header: any[] = [{ type: 'number', label: `Elapsed Time (${UNIT_LABELS[timeUnit]})` }];
-        refs.forEach(ref => {
-            header.push({ type: 'number', label: references.get(ref) || ref });
-            header.push({ type: 'string', role: 'tooltip' });
-        });
-        if (threshold !== null) {
-            header.push({ type: 'number', label: `Threshold (${references.get(selectedReference!) || selectedReference})` });
-            header.push({ type: 'string', role: 'tooltip' });
-        }
-
+        const toElapsed = (ms: number) => (ms - startTime) / 1000 / factor;
         // Carry the last known value forward so a reference missing from
         // one batch row doesn't drop to zero on the chart.
         const last: Record<string, number> = {};
-        const rows = times.map(({ t, ms }) => {
-            const elapsed = (ms - startTime) / 1000 / factor;
-            const row: (number | string)[] = [elapsed];
-            refs.forEach(ref => {
+        const datasets: any[] = refs.map((ref, i) => ({
+            label: references.get(ref) || ref,
+            data: times.map(({ t, ms }) => {
                 const entry = coverageMap.get(`${t}-${ref}`);
                 const y = entry ? (metric === 'depth' ? entry.depth : entry.breadth) : (last[ref] ?? 0);
                 last[ref] = y;
-                row.push(y);
-                row.push(`${references.get(ref) || ref}: ${y.toFixed(2)}${unit} @ ${elapsed.toFixed(2)} ${UNIT_LABELS[timeUnit]}`);
+                return { x: toElapsed(ms), y };
+            }),
+            borderColor: SERIES_COLORS[i % SERIES_COLORS.length],
+            backgroundColor: SERIES_COLORS[i % SERIES_COLORS.length],
+            borderWidth: ref === selectedReference ? 2.5 : 1.5,
+            pointRadius: times.length > 120 ? 0 : 2,
+            pointHoverRadius: 4,
+            tension: 0.15,
+        }));
+        if (threshold !== null) {
+            datasets.push({
+                label: `Threshold (${references.get(selectedReference!) || selectedReference})`,
+                data: [{ x: 0, y: threshold }, { x: toElapsed(times[times.length - 1].ms), y: threshold }],
+                borderColor: '#c0392b',
+                borderDash: [6, 4],
+                borderWidth: 1.5,
+                pointRadius: 0,
+                fill: false,
             });
-            if (threshold !== null) {
-                row.push(threshold);
-                row.push(`Threshold: ${threshold}${unit}`);
-            }
-            return row;
-        });
-        return [header, ...rows];
+        }
+        const unit = metric === 'depth' ? 'x' : '%';
+        const options: any = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: {
+                legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } },
+                tooltip: {
+                    callbacks: {
+                        title: (items: any[]) => `${items[0]?.parsed.x.toFixed(2)} ${UNIT_LABELS[timeUnit]}`,
+                        label: (item: any) => `${item.dataset.label}: ${item.parsed.y.toFixed(2)}${unit}`,
+                    },
+                },
+            },
+            scales: {
+                x: { type: 'linear', title: { display: true, text: `Elapsed time (${UNIT_LABELS[timeUnit]})` }, min: 0 },
+                y: {
+                    title: { display: true, text: metric === 'depth' ? 'Depth (x)' : 'Breadth (%)' },
+                    beginAtZero: true,
+                    ...(metric === 'breadth' ? { max: 100 } : {}),
+                },
+            },
+        };
+        return { data: { datasets }, options };
     }, [coverageData, coverageMap, references, metric, timeUnit, threshold, selectedReference]);
 
     const latestRows = useMemo(() => {
@@ -145,19 +185,6 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
         coverageData.forEach(d => latest.set(d.reference, d));
         return Array.from(latest.values()).sort((a, b) => (a.reference === 'unmapped' ? 1 : 0) - (b.reference === 'unmapped' ? 1 : 0));
     }, [coverageData]);
-
-    const chartOptions = {
-        title: `${metric === 'depth' ? 'Depth of Coverage' : 'Breadth of Coverage'} Over Time`,
-        hAxis: { title: `Elapsed Time (${UNIT_LABELS[timeUnit]})`, minValue: 0 },
-        vAxis: { title: metric === 'depth' ? 'Depth (x)' : 'Breadth (%)', minValue: 0, ...(metric === 'breadth' ? { maxValue: 100 } : {}) },
-        legend: { position: 'bottom' },
-        colors: SERIES_COLORS,
-        chartArea: { width: '80%', height: '65%' },
-        interpolateNulls: true,
-        series: threshold !== null ? {
-            [references.size]: { lineDashStyle: [4, 4], color: '#E74C3C', lineWidth: 2, pointSize: 0 }
-        } : {},
-    };
 
     const selectedName = selectedReference ? (references.get(selectedReference) || selectedReference) : null;
 
@@ -254,15 +281,10 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                     </div>
                 </div>
                 <div className="nano-panel-body">
-                    {formattedData.length > 1 ? (
-                        <Chart
-                            key={`${metric}-${threshold ?? 'none'}`}
-                            chartType="LineChart"
-                            data={formattedData}
-                            options={chartOptions}
-                            width="100%"
-                            height="400px"
-                        />
+                    {chart ? (
+                        <div className="nano-chart-box nano-chart-box-tall">
+                            <Line data={chart.data} options={chart.options} />
+                        </div>
                     ) : (
                         <div className="nano-empty-state">
                             <p>No coverage data available yet.</p>

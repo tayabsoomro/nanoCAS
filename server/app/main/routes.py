@@ -127,10 +127,13 @@ def get_uid():
 @main.route('/get_all_analyses', methods=['GET'])
 def get_all_analyses():
     from .events import list_running
+    from .utils import simulator
     running = set(list_running())
+    simulating = set(simulator.list_simulating())
     data = project_store.list_projects()
     for entry in data:
         entry['monitoring'] = entry['id'] in running
+        entry['simulating'] = entry['id'] in simulating
     return jsonify({'status': 200, 'data': data})
 
 
@@ -689,3 +692,98 @@ def test_notification():
     results = notifier.send_test()
     ok = any(v == 'sent' for v in results.values())
     return jsonify({'ok': ok, 'results': results, 'channels': channels}), (200 if ok else 502)
+
+
+# ---------------------------------------------------------------------------
+# Demo projects + simulated sequencer (no MinION required)
+# ---------------------------------------------------------------------------
+
+from .utils import simulator as _sim  # noqa: E402
+
+
+@main.route('/simulation/scenarios', methods=['GET'])
+def simulation_scenarios():
+    return jsonify({'scenarios': _sim.scenario_list(), 'default': _sim.DEFAULT_SCENARIO})
+
+
+@main.route('/demo/create', methods=['POST'])
+def demo_create():
+    """Create a demo project with synthetic references and, optionally, a
+    replayed completed run. Body: {scenario?, name?, seed_history?}."""
+    body = request.get_json(silent=True) or {}
+    scenario = body.get('scenario') or _sim.DEFAULT_SCENARIO
+    if scenario not in _sim.SCENARIOS:
+        _abort_json(400, f'Unknown scenario {scenario!r}')
+    try:
+        cfg = _sim.create_demo_project(scenario=scenario, name=body.get('name') or None,
+                                       seed_history=bool(body.get('seed_history')),
+                                       history_batches=int(body.get('history_batches') or 36))
+    except RuntimeError as exc:
+        _abort_json(500, str(exc))
+    except ValueError as exc:
+        _abort_json(400, str(exc))
+    return jsonify({'projectId': cfg['projectId'], 'name': cfg.get('projectName'), 'scenario': scenario,
+                    'seeded': bool(body.get('seed_history'))})
+
+
+@main.route('/simulation/start', methods=['POST'])
+def simulation_start():
+    """Start a simulated sequencer writing into the project's watched
+    directory, and start monitoring if it isn't already running."""
+    body = request.get_json(silent=True) or {}
+    project_id = body.get('projectId')
+    _validated_project_path(project_id)
+    scenario = body.get('scenario') or _sim.DEFAULT_SCENARIO
+    try:
+        interval = float(body.get('interval_sec', 5))
+        reads = int(body.get('reads_per_batch', 200))
+        total = int(body.get('total_batches', 40))
+    except (TypeError, ValueError):
+        _abort_json(400, 'interval_sec, reads_per_batch and total_batches must be numbers')
+    interval = min(max(interval, 1.0), 600.0)
+    reads = min(max(reads, 20), 5000)
+    total = min(max(total, 1), 2000)
+    try:
+        sim = _sim.start_simulation(project_id, scenario, interval_sec=interval, reads_per_batch=reads,
+                                    total_batches=total, fresh=bool(body.get('fresh', True)))
+    except ValueError as exc:
+        _abort_json(400, str(exc))
+    from .events import get_listener, start_listener
+    cfg = project_store.load_config(project_id) or {}
+    monitoring_started = False
+    if body.get('start_monitoring', True) and not get_listener(project_id):
+        try:
+            start_listener(project_id, cfg.get('minion'))
+            monitoring_started = True
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f'Could not start monitoring for simulation: {exc}')
+    return jsonify({'status': sim.status(), 'monitoring_started': monitoring_started})
+
+
+@main.route('/simulation/stop', methods=['POST'])
+def simulation_stop():
+    body = request.get_json(silent=True) or {}
+    project_id = body.get('projectId')
+    _validated_project_path(project_id)
+    stopped = _sim.stop_simulation(project_id)
+    return jsonify({'stopped': stopped})
+
+
+@main.route('/simulation/status', methods=['GET'])
+def simulation_status_route():
+    project_id = request.args.get('projectId')
+    _validated_project_path(project_id)
+    status = _sim.simulation_status(project_id)
+    return jsonify({'active': bool(status and status['running']), 'status': status})
+
+
+@main.route('/simulation/reset', methods=['POST'])
+def simulation_reset():
+    """Clear simulated inputs and derived state so the project can be run again."""
+    body = request.get_json(silent=True) or {}
+    project_id = body.get('projectId')
+    _validated_project_path(project_id)
+    _sim.stop_simulation(project_id)
+    cfg = project_store.load_config(project_id) or {}
+    _sim.reset_project_run(project_id, cfg.get('minion'))
+    return jsonify({'reset': True})

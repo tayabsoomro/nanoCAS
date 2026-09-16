@@ -175,6 +175,8 @@ def list_projects() -> list[dict]:
         entry['file_type'] = (cfg or {}).get('fileType', 'FASTQ')
         entry['created_at'] = (cfg or {}).get('createdAt')
         entry['query_count'] = len((cfg or {}).get('queries', []) or [])
+        entry['demo'] = bool((cfg or {}).get('demo'))
+        entry['demo_scenario'] = (cfg or {}).get('demoScenario')
         entry['exists'] = os.path.isdir(row['nanocas_dir'])
         projects.append(entry)
     projects.sort(key=lambda p: p.get('created_at') or '', reverse=True)

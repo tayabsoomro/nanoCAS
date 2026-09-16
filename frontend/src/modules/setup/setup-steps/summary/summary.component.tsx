@@ -8,6 +8,7 @@ import { api, RUN_HEALTH_FIELDS } from '../../../../api';
 type ISummaryComponentProps = {
     databaseSetupInput: IDatabseSetupInput
     alertNotifSetupInput: IAlertNotifSetupInput
+    goBack: () => void
 }
 
 type BuildState = 'idle' | 'validating' | 'building' | 'done' | 'failed';
@@ -24,7 +25,7 @@ const getUniqueUID = (locations: ILocationConfig) => {
     return api.post('/get_uid', locationData);
 };
 
-const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseSetupInput, alertNotifSetupInput }) => {
+const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseSetupInput, alertNotifSetupInput, goBack }) => {
     const [error, setError] = useState("");
     const [state, setState] = useState<BuildState>('idle');
     const [uid, setUID] = useState("");
@@ -103,8 +104,7 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
     const busy = state === 'validating' || state === 'building';
 
     return (
-        <div className="container text-center">
-            <div className="vspacer-20" />
+        <div>
             {(state === 'building' || state === 'done') && (
                 <div className={`alert ${state === 'done' ? 'alert-success' : 'alert-info'} text-left`}>
                     <div className="d-flex justify-content-between align-items-center">
@@ -125,12 +125,12 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                     )}
                 </div>
             )}
-            {error && <div className="alert alert-danger text-left">ERROR: {error}</div>}
-            <h4>Setup Summary</h4>
-            <p>Review your configuration below, then create the project.</p>
-            <div className="vspacer-20" />
-            <table className="table table-bordered text-start">
-                <thead className="thead-light">
+            {error && <div className="nano-alert-banner critical"><span className="nano-alert-message">{error}</span></div>}
+            <div className="nano-wizard-panel">
+            <h4>Review</h4>
+            <p>Create the project to build the reference index. Monitoring is started from the project page.</p>
+            <table className="table text-start mb-0">
+                <thead>
                 <tr><th colSpan={3}>Alert sequences</th></tr>
                 </thead>
                 <tbody>
@@ -156,7 +156,7 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                     </tr>
                 )}
                 </tbody>
-                <thead className="thead-light">
+                <thead>
                 <tr><th colSpan={3}>Configuration</th></tr>
                 </thead>
                 <tbody>
@@ -164,14 +164,14 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                 <tr><th>Nanopore directory</th><td colSpan={2}>{databaseSetupInput.locations.nanoporeLocation}</td></tr>
                 <tr><th>MinKNOW device</th><td colSpan={2}>{databaseSetupInput.device.device || "Not provided"}</td></tr>
                 </tbody>
-                <thead className="thead-light">
+                <thead>
                 <tr><th colSpan={3}>Notifications</th></tr>
                 </thead>
                 <tbody>
                 <tr><th>Email</th><td colSpan={2}>{alertNotifSetupInput.enableEmail ? `Enabled → ${alertNotifSetupInput.emailConfig?.recipient} via ${alertNotifSetupInput.emailConfig?.smtpServer}:${alertNotifSetupInput.emailConfig?.smtpPort}` : 'Disabled'}</td></tr>
                 <tr><th>SMS</th><td colSpan={2}>{alertNotifSetupInput.enableSMS ? `Enabled → ${alertNotifSetupInput.smsRecipient}` : 'Disabled'}</td></tr>
                 </tbody>
-                <thead className="thead-light">
+                <thead>
                 <tr><th colSpan={3}>Run-health alerts</th></tr>
                 </thead>
                 <tbody>
@@ -180,10 +180,14 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                 )) : <tr><td colSpan={3}>Disabled</td></tr>}
                 </tbody>
             </table>
-            <div className="vspacer-20" />
-            <button className="btn btn-primary" disabled={busy || state === 'done'} onClick={(e) => initiateDatabaseCreation(e)}>
-                {busy ? 'Working…' : state === 'done' ? 'Project created' : 'Create project'}
-            </button>
+            </div>
+            <div className="nano-wizard-actions">
+                <button className="btn btn-outline-secondary" onClick={goBack} disabled={busy || state === 'done'}>Back</button>
+                <span className="spacer" />
+                <button className="btn btn-primary" disabled={busy || state === 'done'} onClick={(e) => initiateDatabaseCreation(e)}>
+                    {busy ? 'Working…' : state === 'done' ? 'Project created' : 'Create project'}
+                </button>
+            </div>
         </div>
     );
 }

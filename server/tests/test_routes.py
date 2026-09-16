@@ -151,3 +151,29 @@ def test_test_notification_requires_channels(client):
 def test_index_devices_returns_list(client):
     r = client.get('/index_devices')
     assert r.status_code == 200 and isinstance(r.json, list)
+
+
+def test_frontend_is_served_when_build_exists(tmp_path, monkeypatch):
+    """With a build directory present the backend serves index.html for
+    unknown paths (SPA fallback) while API routes keep precedence."""
+    build = tmp_path / 'build'
+    (build / 'static' / 'js').mkdir(parents=True)
+    (build / 'index.html').write_text('<html><body>nanoCAS UI</body></html>')
+    (build / 'static' / 'js' / 'main.js').write_text('console.log(1)')
+    monkeypatch.setenv('NANOCAS_STATIC_DIR', str(build))
+    from app import create_app
+    app = create_app(debug=False)
+    c = app.test_client()
+    assert b'nanoCAS UI' in c.get('/').data
+    assert b'nanoCAS UI' in c.get('/project/abc/coverage').data
+    assert c.get('/static/js/main.js').data == b'console.log(1)'
+    assert c.get('/version').json['name'] == 'nanoCAS'
+    assert c.get('/get_coverage?projectId=..').status_code == 400
+    assert c.get('/static/../index.html').status_code in (200, 404)
+
+
+def test_frontend_not_served_without_build(monkeypatch):
+    monkeypatch.setenv('NANOCAS_STATIC_DIR', '')
+    from app import create_app
+    app = create_app(debug=False)
+    assert app.test_client().get('/').status_code == 404

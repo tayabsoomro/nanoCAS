@@ -16,6 +16,7 @@ type IDatabaseSetupProps = {
 
 type IAlertNotifSetupProps = {
     advanceStep: () => void,
+    goBack: () => void,
     update: React.Dispatch<React.SetStateAction<IAlertNotifSetupInput>>,
     initial: IAlertNotifSetupInput,
 }

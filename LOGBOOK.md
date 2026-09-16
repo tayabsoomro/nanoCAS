@@ -698,3 +698,63 @@ run-health alerts, batch failures, missing tools/index and monitoring start/stop
 - POD5/FAST5 inputs are detected for run-start purposes only; basecalling is out of scope.
 - `install.py` / `setup.sh` remain as convenience installers and are not covered by tests.
 - The committed Gmail password (item 3) must be rotated by the maintainers.
+
+
+---
+
+# Part 7 — Simulation mode and UI simplification (2026-09-16)
+
+## 7.1 Sequencer simulator (`server/app/main/utils/simulator.py`)
+
+- **Synthetic reference set**: `Host_control` (60 kb), `Contaminant_X` (30 kb), `Pathogen_Y` (20 kb), generated
+  deterministically (seed 42) and written as `demo_reference.fasta` in the project.
+- **Reads**: sampled from the references with 4 % substitutions and 1 % indels, random strand, log-normal
+  lengths (median ~2 kb); "junk" reads are random sequence and end up unmapped. Per-read Q-scores are drawn from
+  a scenario-driven mean; quality strings are constant at that Q.
+- **Output**: gzipped FASTQ batches written to a temp name and atomically renamed into the watched directory
+  (the pattern MinKNOW uses), plus a `sequencing_summary_<runid>.txt` with the columns the run-health tracker
+  reads (`channel`, `start_time`, `passes_filtering`, `sequence_length_template`, `mean_qscore_template`,
+  `end_reason`). Run time advances `time_scale` (60x) faster than wall time so the per-minute series evolves.
+- **Scenarios** (`SCENARIOS`): clean, contamination (ramp to 20 %), pathogen (3 %), flowcell_failure (active
+  channels 440 → 20 and Q 13 → 6 over the run, batch size shrinking), stalled (stops after ~1/6 of the batches),
+  not_started (writes nothing). Each declares the alert ids it is expected to trigger; the UI shows them.
+- **Live simulation**: `start_simulation()` clears previous simulated inputs and derived state, starts a daemon
+  writer thread, and (via `/simulation/start`) starts monitoring. Status is pushed as `simulation_update`.
+- **Replayed history**: `replay_run()` generates a whole run with `interval_sec=0`, sets each batch's mtime to a
+  synthetic wall clock (5 min apart), pushes it through the real `FileHandler`, and calls
+  `RunHealthMonitor.tick(now=…)` after every batch. `AlertLog.clock` / `FileHandler.clock` let the alert and
+  coverage timestamps follow that clock, so a seeded project looks exactly like a run that finished just now.
+- **Demo projects**: `create_demo_project()` builds the index synchronously (100 kb → < 1 s) and stores
+  `demo: true`, `demoScenario`, and fast run-health settings (1-minute timeouts, 5-second checks).
+- **CLI** `server/demo.py`: `seed`, `list`, `simulate`, `reset`.
+- **Safety**: `reset_project_run` only removes simulator-named files and only inside a directory under the nanoCAS
+  workspace (or containing "nanocas"); a real MinKNOW directory is never cleared.
+
+Bug found while writing this: both thread subclasses used `self._stop = threading.Event()`, which shadows
+`threading.Thread._stop()` and makes `is_alive()`/`join()` raise `TypeError` once the thread has finished. The
+run-health monitor had the same latent bug (masked by `join=False` in `stop_listener`). Renamed to `_stop_event`.
+
+## 7.2 UI
+
+- Neutral theme: system font stack, one accent (`#0f4c5c`), grey scale, three status colours; no gradients,
+  glows or icon fonts (the FontAwesome kit script and the duplicate Bootstrap 4 assets are gone). Bootstrap 5 is
+  bundled from npm instead of a CDN and the coverage-over-time chart moved from Google Charts (which loads its
+  code from gstatic.com at runtime and therefore fails on an offline instrument laptop) to the already-bundled
+  Chart.js. The built UI now makes no external requests at all.
+- Alignment viewer: a per-bin depth track over the reference plus a bounded pile-up (25 rows, "show more"),
+  replacing the unbounded read stacking that produced multi-thousand-pixel pages on real runs.
+- The backend serves `frontend/build` itself when present (SPA fallback), so a deployment can be a single port.
+- Projects page opens with a three-line statement of what nanoCAS does, a Watch → Align → Alert strip, and two
+  actions: **New project** and **Try it without a sequencer** (scenario picker, optional completed run).
+- Project page: **Simulate a run** dropdown (scenarios), **Stop simulation**, **Reset run data** for demo projects,
+  and a status line with batches / reads / run time / expected alerts.
+- Header shows backend reachability and missing tools; footer reduced to one line.
+- Wizard: three panels ("sequences & run", "alerts", "review") with short one-line explanations; Back/Continue
+  actions; device picker inline.
+
+## 7.3 Verification
+
+- `pytest server/tests`: simulator scripts, batch writing, scenario endpoint, demo creation with replayed
+  history (coverage rows per batch, chronological alert log, run-health snapshot), live simulation through the
+  HTTP API including start-while-running rejection and reset.
+- Built UI screenshots taken against a live backend with a seeded demo project (see PR).

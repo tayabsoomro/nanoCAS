@@ -94,6 +94,9 @@ class FileHandler(FileSystemEventHandler):
         # Wall-clock time the last batch finished processing (for the
         # run-health stall detector).
         self.last_processed_time: float | None = None
+        # Optional synthetic clock (callable returning datetime) used when a
+        # demo run is replayed; None means wall-clock time.
+        self.clock = None
 
         # Load previously processed files if the file exists
         if os.path.exists(self.processed_files_path):
@@ -542,7 +545,7 @@ class FileHandler(FileSystemEventHandler):
                 logger.error(f"Could not append to {self.coverage_file}: {e}")
             logger.debug(f"Coverage and read counts recorded at {timestamp}")
 
-        self.last_processed_time = time.time()
+        self.last_processed_time = self.clock().timestamp() if self.clock else time.time()
         emit_payload = {
             'projectId': self.project_id,
             'timestamp': timestamp,

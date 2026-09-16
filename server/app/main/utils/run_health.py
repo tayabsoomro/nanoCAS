@@ -758,7 +758,7 @@ class RunHealthMonitor(threading.Thread):
         self.tracker: SequencingSummaryTracker | None = None
         self.summary_path: str | None = None
         self.started_at = time.time()
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
         self._snapshot: dict = self._empty_snapshot()
         self._snapshot_lock = threading.Lock()
         self._tick_count = 0
@@ -767,18 +767,18 @@ class RunHealthMonitor(threading.Thread):
     # -- lifecycle -----------------------------------------------------
 
     def stop(self, join: bool = True) -> None:
-        self._stop.set()
+        self._stop_event.set()
         if join and self.is_alive() and threading.current_thread() is not self:
             self.join(timeout=self.config['checkIntervalSec'] + 5)
 
     def run(self) -> None:
         logger.info(f'Run-health monitor started for project {self.project_id} (watching {self.minion_dir})')
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 self.tick()
             except Exception as exc:  # noqa: BLE001
                 logger.error(f'Run-health tick failed for {self.project_id}: {exc}', exc_info=True)
-            self._stop.wait(self.config['checkIntervalSec'])
+            self._stop_event.wait(self.config['checkIntervalSec'])
         logger.info(f'Run-health monitor stopped for project {self.project_id}')
 
     # -- evaluation ----------------------------------------------------
