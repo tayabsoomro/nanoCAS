@@ -579,6 +579,7 @@ def create_demo_project(*, scenario: str = DEFAULT_SCENARIO, name: str | None = 
                    source='system', project_id=project_id)
         log.clock = None
         replay_run(project_id, scenario, batches=history_batches, progress=progress)
+        _seed_lab_results(project_id, scenario)
     else:
         log.append('project_created', 'info', f'Demo project created ({label})',
                    source='system', project_id=project_id)
@@ -629,6 +630,30 @@ def replay_run(project_id: str, scenario: str, *, batches: int = 36, interval_mi
             progress(int(100 * (b + 1) / batches), f'Replaying batch {b + 1}/{batches}')
     return {'batches': sim.batches_written, 'reads': sim.reads_written, 'active_rules': fired,
             'alerts': handler.alert_log.count()}
+
+
+def _seed_lab_results(project_id: str, scenario: str) -> None:
+    """Plausible confirmatory qPCR results for a replayed demo run, so the
+    Lab results tab and the across-runs summary have something to show.
+    Ct values follow the usual log-linear yield relationship (about -0.3
+    log10 RPM per cycle) with a little noise."""
+    from . import lab_results
+    rng = random.Random(hash(project_id) & 0xFFFF)
+    rows: list[dict] = []
+    if scenario == 'contamination':
+        rows = [{'target': 'Contaminant_X', 'ct': round(rng.uniform(22.5, 25.5), 1), 'sample_id': 'S-01', 'result': 'positive'},
+                {'target': 'Pathogen_Y', 'result': 'negative', 'sample_id': 'S-01'}]
+    elif scenario == 'pathogen':
+        rows = [{'target': 'Pathogen_Y', 'ct': round(rng.uniform(29.0, 32.0), 1), 'sample_id': 'S-02', 'result': 'positive'},
+                {'target': 'Contaminant_X', 'result': 'negative', 'sample_id': 'S-02'}]
+    else:
+        rows = [{'target': 'Contaminant_X', 'result': 'negative', 'sample_id': 'S-03'},
+                {'target': 'Pathogen_Y', 'result': 'negative', 'sample_id': 'S-03'}]
+    for row in rows:
+        try:
+            lab_results.add_result(project_id, dict(row, assay='qPCR (demo)'))
+        except ValueError as exc:
+            logger.warning(f'Could not seed demo lab result: {exc}')
 
 
 def list_demo_projects() -> list[dict]:

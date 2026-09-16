@@ -99,7 +99,7 @@ def test_coverage_counts_low_quality_bases_and_primary_reads_only(tmp_path):
     assert depth == 70 / 1000  # low-quality bases still count
     assert abs(breadth - 7.0) < 1e-9
     rows = open(tmp_path / 'coverage.csv').read().splitlines()
-    assert rows[0] == 'timestamp,reference,depth,breadth,read_count'
+    assert rows[0] == 'timestamp,reference,depth,breadth,read_count,fraction'
     assert rows[1].startswith('2026-01-01 00:00:00,chr1,0.07')
     assert rows[2].split(',')[1] == 'unmapped'
 

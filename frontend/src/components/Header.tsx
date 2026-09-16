@@ -50,6 +50,9 @@ const Header: React.FC = () => {
               <Link to="/setup" className={`nano-nav-link ${isActive('/setup') ? 'nano-nav-active' : ''}`}>New project</Link>
             </li>
             <li className="nano-nav-item">
+              <Link to="/summary" className={`nano-nav-link ${isActive('/summary') ? 'nano-nav-active' : ''}`}>Across runs</Link>
+            </li>
+            <li className="nano-nav-item">
               <span className={`nano-backend-status ${backend}`} title={tools}>
                 <span className="nano-status-dot" />
                 {backend === 'ok' ? 'backend online' : backend === 'degraded' ? 'tools missing' : backend === 'down' ? 'backend offline' : '…'}

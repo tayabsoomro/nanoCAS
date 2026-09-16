@@ -5,6 +5,7 @@ import Footer from './components/Footer';
 import ProjectList from './modules/project/ProjectList';
 import ProjectDetail from './modules/project/ProjectDetail';
 import SetupComponent from './modules/setup/setup.component';
+import CohortPage from './modules/cohort/CohortPage';
 import { API_ENDPOINT } from './api';
 import './styles/theme.css';
 import './app.component.css';
@@ -40,6 +41,7 @@ const AppComponent = () => {
                     <Switch>
                         <Route exact path="/" component={ProjectList} />
                         <Route path="/setup" component={SetupComponent} />
+                        <Route path="/summary" component={CohortPage} />
                         <Route path="/project/:id/:tab?" component={ProjectDetail} />
                     </Switch>
                 </main>

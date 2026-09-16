@@ -616,6 +616,7 @@
     align-items: center;
     flex-wrap: wrap;
 }
+.nano-alert-filters .form-select { width: auto; }
 
 .nano-table td.nano-alert-time {
     white-space: nowrap;

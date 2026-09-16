@@ -758,3 +758,66 @@ run-health monitor had the same latent bug (masked by `join=False` in `stop_list
   history (coverage rows per batch, chronological alert log, run-health snapshot), live simulation through the
   HTTP API including start-while-running rejection and reset.
 - Built UI screenshots taken against a live backend with a seeded demo project (see PR).
+
+
+---
+
+# Part 8 — Classifier plug-ins, GFF feature alerts, laboratory results (2026-09-16)
+
+## 8.1 Positioning
+
+`docs/LANDSCAPE.md` catalogues MinKNOW live alignment, the EPI2ME workflows, RAMPART/VisPan, minoTour, NanoOK RT,
+MARTi, MMonitor, Nanometa Live, the adaptive-sampling engines and the cloud platforms (CZ ID, BugSeq), with sources.
+The differentiation nanoCAS claims: it is the decision layer (thresholds + notifications + instrument-health rules +
+laboratory-result linkage) on top of any classifier, deployable offline in one process.
+
+## 8.2 Classifier abstraction (`utils/classifiers/`)
+
+- `Classifier` contract: `build_index(references, headers, output_dir, progress) -> path`,
+  `classify(input, index, workdir, threads) -> BatchResult`; `kind` is `alignment` (returns a BAM, feeds the
+  coverage accumulator and GFF region alerts) or `taxonomic` (returns per-target clade read counts, feeds
+  `TaxaCounter`). `canonical_target()` lets each tool normalise target keys (minimap2: first header token;
+  Kraken2/Centrifuge: lower-cased name or `taxid:N`).
+- Built-ins: `Minimap2Classifier` (moved out of `tasks.py`/`FileHandler`), `Kraken2Classifier` (validates the
+  DB directory, runs `kraken2 --report`, parses clade counts), `CentrifugeClassifier` (validates the `.1.cf`
+  prefix, parses `--report-file`).
+- Registry + plug-ins: `~/.nanocas/plugins/*.py` (or `NANOCAS_PLUGIN_DIR`) are imported at first use; every
+  concrete `Classifier` subclass is registered by `name`. Broken files are skipped and logged; a plug-in cannot
+  shadow a built-in. `GET /classifiers` reports availability (executables on PATH) for the wizard.
+- Pipeline: `tasks.int_download_database` delegates to the classifier and writes `database/index.json`
+  (classifier, index path, targets); `FileHandler` reads the manifest, runs `classify()` per batch and takes the
+  BAM or read-count path. Thresholds generalised to four kinds (depth, breadth, reads, fraction) for every
+  classifier; `coverage.csv` gained a `fraction` column (old 5-column files still parse).
+- Tests: report parsers, fake `kraken2`/`centrifuge` executables on PATH, plug-in discovery (good, broken and
+  name-clashing files), and a full taxonomic pipeline run producing read-count and fraction alerts.
+
+## 8.3 GFF feature alerts
+
+`utils/gff.py` parses GFF3 (ID/Name/locus_tag/product attributes, `##FASTA` section ignored, 20 000-feature cap).
+`POST /parse_gff` feeds a picker in the wizard (filter by type, search, select shown, per-feature depth
+threshold); the selection is written to `regions.json` at project creation and editable later through
+`GET /get_regions` / `POST /update_regions` from the Alerts tab. `FileHandler` re-reads `regions.json` when its
+mtime changes, so edits apply to the next batch without restarting. Previously nothing ever wrote `regions.json`,
+so region alerts were unreachable from the UI.
+
+## 8.4 Laboratory results and statistics
+
+`utils/lab_results.py` stores qPCR results per project (`lab_results.json`), derives per-target nanopore metrics
+from `coverage.csv` (latest reads / fraction / depth / breadth, `detected` = any configured threshold reached,
+time to detection from the first batch) and computes:
+
+- per project: concordance with the laboratory call, log10(RPM) vs Ct OLS with Pearson r and t-test p, Spearman ρ;
+- across projects (`GET /cohort`): positivity with Wilson 95 % CI, sensitivity/specificity/kappa against qPCR,
+  median time to detection, pooled regression and a Ct limit of detection (Ct at which the fit predicts 3 reads in a
+  median-sized run; P(≥1 read | Poisson(3)) = 95 %).
+
+`utils/stats.py` is dependency-free (regularised incomplete beta for the t distribution) and unit-tested against
+known values. Demo projects with replayed history get plausible seeded qPCR results so the pages demonstrate.
+
+## 8.5 UI
+
+Front page reduced to one sentence and two actions (New project / See a demo); the three-step explanation only
+appears in the empty state. Wizard panel "What to watch for" now holds the classifier choice, database path for
+taxonomic tools, taxon entry, four threshold kinds and the GFF feature picker. New **Lab results** tab and
+**Across runs** page; Alerts tab shows target thresholds and an editable feature-alert table; Coverage tab handles
+reads/fraction metrics and hides alignment views for taxonomic projects.

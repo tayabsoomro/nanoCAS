@@ -176,7 +176,7 @@ def test_unaligned_reads_are_counted_as_unmapped(e2e_project):
     assert handler.coverage_acc.unmapped_count == 20
     assert handler.coverage_acc.stats('targetA')[2] == 0
     rows = [l for l in open(os.path.join(pdir, 'coverage.csv')) if l.startswith('2026-01-01')]
-    assert any(l.split(',')[1] == 'unmapped' and l.strip().endswith(',20') for l in rows)
+    assert any(l.split(',')[1] == 'unmapped' and l.split(',')[4] == '20' for l in rows)
 
 
 def test_corrupt_fastq_fails_cleanly(e2e_project):

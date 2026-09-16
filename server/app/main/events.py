@@ -23,6 +23,7 @@ from .utils import project_store
 from .utils.FileHandler import FileHandler
 from .utils.LinuxNotification import LinuxNotification
 from .utils.alerts import SEVERITY_INFO, SOURCE_SYSTEM, AlertLog, Notifier, emit_alert
+from .utils.gff import regions_from_selection
 from .utils.run_health import RunHealthMonitor, normalise_config
 from .utils.tasks import int_download_database
 
@@ -207,9 +208,12 @@ def _build_database_task(dbinfo, nanocas_location, queries, sid):
         else:
             error_code = result or 'UNKNOWN'
             logger.error(f"Database build failed with code: {error_code}")
+            if error_code.startswith('ER_INDEX:'):
+                message = error_code.split(':', 1)[1]
+            else:
+                message = _ERROR_MESSAGES.get(error_code, error_code)
             socketio.emit('download_database_complete',
-                          {'success': False, 'error': error_code, 'message': _ERROR_MESSAGES.get(error_code, error_code),
-                           'projectId': project_id}, to=sid)
+                          {'success': False, 'error': error_code, 'message': message, 'projectId': project_id}, to=sid)
     except Exception as e:  # noqa: BLE001
         logger.error(f"Unhandled error during database build: {e}", exc_info=True)
         socketio.emit('download_database_complete',
@@ -225,6 +229,8 @@ _ERROR_MESSAGES = {
     'ER_MINIMAP2_NOTFOUND': 'minimap2 is not installed or not on PATH.',
     'ER_MINIMAP2_UNKNOWN': 'Unexpected error while running minimap2.',
     'ER_COVERAGE': 'coverage.csv could not be initialised.',
+    'ER_CLASSIFIER_UNKNOWN': 'The selected classifier is not installed as a plug-in on this server.',
+    'ER_CLASSIFIER_UNAVAILABLE': 'The selected classifier\'s executable is not on PATH on this server.',
 }
 
 
@@ -247,6 +253,10 @@ def download_database(dbinfo):
     dbinfo["device"] = device
     dbinfo["createdAt"] = project_store.now_iso()
     dbinfo["runHealthConfig"] = normalise_config(dbinfo.get("runHealthConfig"))
+    classifier_cfg = dbinfo.get("classifier") or {}
+    dbinfo["classifier"] = {'name': classifier_cfg.get('name') or 'minimap2',
+                            'database': classifier_cfg.get('database') or None}
+    region_selection = dbinfo.pop("regions", None)
     nanocas_location = project_store.project_dir(project_id) + os.sep
 
     # (Re)create the project directory. A running listener on this id
@@ -277,6 +287,13 @@ def download_database(dbinfo):
     with open(os.path.join(nanocas_location, 'alertinfo.cfg'), 'w') as f:
         json.dump(dbinfo, f, indent=2)
     logger.debug(f"Wrote alertinfo.cfg for project {project_id}")
+
+    # GFF features the user chose to alert on -> regions.json
+    if region_selection:
+        regions = regions_from_selection(region_selection)
+        with open(os.path.join(nanocas_location, 'regions.json'), 'w') as f:
+            json.dump(regions, f, indent=2)
+        logger.debug(f"Wrote {sum(len(v) for v in regions.values())} alert region(s) for project {project_id}")
 
     if device:
         try:

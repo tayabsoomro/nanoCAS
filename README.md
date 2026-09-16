@@ -27,6 +27,14 @@ desktop notification and directly into the MinKNOW UI of the sequencing position
 |---|---|
 | ![Run health](docs/screenshots/run-health.png) | ![Alerts](docs/screenshots/alerts.png) |
 
+| Lab results (qPCR vs sequencing) | Across runs |
+|---|---|
+| ![Lab results](docs/screenshots/lab-results.png) | ![Across runs](docs/screenshots/across-runs.png) |
+
+| New project: targets, classifier, GFF features | GFF feature picker |
+|---|---|
+| ![Wizard](docs/screenshots/wizard.png) | ![GFF features](docs/screenshots/gff-features.png) |
+
 All four were captured from demo projects created with **Try it without a sequencer**; no hardware was involved.
 
 ## Features
@@ -35,7 +43,9 @@ All four were captured from demo projects created with **Try it without a sequen
 |---|---|
 | **Live ingestion** | Watches a directory (typically `fastq_pass`) with `watchdog`; handles MinKNOW's atomic-rename writes, `.fastq`, `.fq`, gzipped variants and externally produced BAMs. Files already present are caught up on start; failed batches are recorded and retried on restart, never silently dropped. |
 | **Coverage** | Per-batch minimap2 alignment (`-x map-ont`, multi-threaded) folded into a rolling per-position depth accumulator (O(reads in batch), not O(all reads)). Depth counts every aligned base regardless of base quality (matches `samtools depth`); read counts are primary alignments only. |
-| **Coverage alerts** | Depth (x) and breadth (%) thresholds per reference sequence, plus per-region alerts from an optional GFF. Each fires once per run. |
+| **Classifiers** | minimap2 (alignment), Kraken2 and Centrifuge (taxonomic) built in; add your own by dropping a Python class into `~/.nanocas/plugins/`. Alerts are defined on metrics, not tools. |
+| **Target alerts** | Depth (x), breadth (%), read count and read fraction thresholds per target; per-feature depth alerts chosen from an uploaded GFF3. Each fires once per run. |
+| **Lab results** | Record confirmatory qPCR results (Ct) per target; nanoCAS reports agreement, time to detection and the log10(RPM)–Ct regression; the across-runs page pools every project with Wilson intervals, sensitivity/specificity, Cohen's kappa and a Ct limit of detection. |
 | **Run-health alerts** | Seven rules with hysteresis, evaluated every 30 s while monitoring (see [Run-health rules](#run-health-rules)). Flow-cell type (Flongle / MinION / PromethION) is inferred from the channel numbers. |
 | **Visualisation** | Coverage-over-time chart with threshold line, current-coverage table, stacked read alignment viewer with GFF regions, Q-score and read-length histograms, median-Q trend, throughput, pore-health and instrument panels. |
 | **Alert history** | Every alert (fired and recovered) is appended to `alerts.jsonl` and browsable/filterable in the Alerts tab; live toasts and a banner appear as alerts arrive. |
@@ -235,6 +245,60 @@ Flow-cell geometry is inferred from the highest channel number in the summary (�
 ≤3000 PromethION). When a MinKNOW position is selected, its live acquisition status, flow-cell id and channel count
 are shown in the Run Health tab and used by the run-start rule.
 
+### Classifiers and plug-ins
+
+A project's reads are processed by a *classifier*. Built in:
+
+| Name | Kind | Reference | Metrics |
+|---|---|---|---|
+| `minimap2` | alignment | uploaded FASTA (choose records) | depth, breadth, reads, fraction, GFF features |
+| `kraken2` | taxonomic | Kraken2 database directory on the server | reads, fraction (clade counts) |
+| `centrifuge` | taxonomic | Centrifuge index prefix on the server | reads, fraction |
+
+Targets for taxonomic classifiers are taxon names as they appear in the tool's report, or NCBI taxids.
+
+To add your own, create `~/.nanocas/plugins/<anything>.py`:
+
+```python
+from app.main.utils.classifiers import Classifier, BatchResult
+
+class BlastClassifier(Classifier):
+    name = 'blastn'                 # used in project configuration
+    label = 'BLAST (alignment-free counts)'
+    kind = 'taxonomic'              # 'alignment' -> return bam_path; 'taxonomic' -> return read_counts
+    reference_input = 'database'    # or 'fasta'
+    executables = ('blastn',)       # checked on PATH for availability
+
+    def build_index(self, references, headers, output_dir, progress=None):
+        return references[0]        # validate / build; return what classify() needs
+
+    def classify(self, input_path, index_path, workdir, *, threads=4):
+        counts = run_blast_and_count(input_path, index_path)   # {target: reads}
+        return BatchResult(read_counts=counts, total_reads=..., unclassified=...)
+```
+
+It appears in the wizard's classifier list at the next server start (`GET /classifiers`). A file that fails to
+import is logged and skipped; a plug-in cannot override a built-in name.
+
+### GFF feature alerts
+
+Upload a GFF3 in the wizard, tick the features (genes, CDS, …) to alert on and set a depth threshold per feature.
+Selected features are stored as `regions.json` and can be toggled or re-thresholded later in the Alerts tab; the
+watcher reloads the file before every batch. Feature alerts need an alignment classifier.
+
+### Lab results and statistics
+
+The **Lab results** tab records confirmatory qPCR results per target (result, Ct, sample id, assay, date) and shows,
+per target, what the run found (reads, share of reads, time to detection) next to the laboratory call, with
+concordant/discordant flags and a log10(reads per million) versus Ct regression (Pearson r, p from a two-sided
+t-test, slope; -0.30 per cycle is the expectation at 100 % PCR efficiency).
+
+The **Across runs** page pools every project: positivity by nanopore and by qPCR with Wilson 95 % intervals,
+sensitivity, specificity and Cohen's kappa against qPCR, median time to detection, the pooled RPM–Ct fit and the
+Ct at which the fit predicts 3 target reads in a median-sized run (95 % detection under a Poisson model). Demo
+runs are labelled and can be excluded. `docs/LANDSCAPE.md` places all of this against MinKNOW, EPI2ME, RAMPART,
+minoTour, MARTi, CZ ID and the other tools in the field.
+
 ### Coverage definitions
 
 - **Depth** = (sum of aligned bases over all positions) / reference length, counting every base of every primary,
@@ -258,6 +322,9 @@ project id.
 | `GET /get_alignments?reference=` | Primary alignments + GFF regions for the viewer (lazy merged BAM) |
 | `GET /run_health`, `GET /run_health_defaults` | Run-health snapshot (live monitor state or one-shot parse) and rule defaults |
 | `GET /get_alerts` | Alert history, active rules, enabled channels |
+| `GET /classifiers` | Built-in and plug-in classifiers with availability |
+| `POST /parse_gff`, `GET /get_regions`, `POST /update_regions` | GFF feature alerts |
+| `GET/POST/DELETE /lab_results`, `GET /lab_correlation`, `GET /cohort` | Laboratory results and statistics |
 | `POST /test_notification` | Send a test through every configured channel |
 | `GET /get_processing_status` | Files processed / failed, monitoring state |
 | `GET /index_devices` | MinKNOW positions (read-only) |
@@ -291,6 +358,9 @@ nanoCAS/
 │   │   ├── alerts.py               # AlertLog, Notifier, safe socket emits
 │   │   ├── project_store.py        # project index + id validation
 │   │   ├── simulator.py            # sequencer simulator, scenarios, demo projects
+│   │   ├── classifiers/            # Classifier contract, minimap2 / kraken2 / centrifuge, plug-in registry
+│   │   ├── gff.py                  # GFF3 features -> alert regions
+│   │   ├── lab_results.py, stats.py # qPCR results, correlation, cohort statistics
 │   │   ├── tasks.py                # minimap2 index build
 │   │   ├── LinuxNotification.py    # MinKNOW gRPC (positions, messages, live status)
 │   │   ├── email.py / sms.py       # SMTP / Twilio

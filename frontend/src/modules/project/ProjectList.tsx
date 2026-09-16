@@ -89,20 +89,15 @@ const ProjectList: React.FC = () => {
     return (
         <div className="nano-projects-page">
             <section className="nano-hero">
-                <h1>Know the moment your nanopore run goes wrong.</h1>
+                <h1>Real-time alerts for nanopore sequencing runs.</h1>
                 <p>
-                    nanoCAS watches a live Oxford Nanopore run, aligns each new batch of reads against the sequences
-                    you care about, and alerts you when foreign DNA appears or the run itself fails.
+                    nanoCAS watches a run as MinKNOW writes it and tells you the moment a sequence you care about
+                    appears, or the run itself starts to fail.
                 </p>
-                <ol className="nano-steps">
-                    <li><span>1</span><strong>Watch</strong><em>the run's <code>fastq_pass</code> folder as MinKNOW writes it</em></li>
-                    <li><span>2</span><strong>Align</strong><em>every batch of reads to your reference sequences</em></li>
-                    <li><span>3</span><strong>Alert</strong><em>on contamination, dying pores, low quality or a stalled run</em></li>
-                </ol>
                 <div className="nano-hero-actions">
                     <Link to="/setup" className="btn btn-primary">New project</Link>
                     <button className="btn btn-outline-primary" onClick={() => setShowDemo(true)}>
-                        Try it without a sequencer
+                        See a demo
                     </button>
                 </div>
             </section>
@@ -118,7 +113,13 @@ const ProjectList: React.FC = () => {
                 <div className="nano-projects-loading"><div className="nano-spinner"></div></div>
             ) : projects.length === 0 ? (
                 <div className="nano-projects-empty">
-                    <p>No projects yet. Create one for a real run, or start with a demo.</p>
+                    <p><strong>Start here.</strong> A project is one sequencing run and the targets you want to be alerted about.</p>
+                    <ol className="nano-steps nano-steps-compact">
+                        <li><span>1</span><strong>Watch</strong><em>the run's <code>fastq_pass</code> folder</em></li>
+                        <li><span>2</span><strong>Classify</strong><em>each batch of reads (minimap2, Kraken2, Centrifuge or your own tool)</em></li>
+                        <li><span>3</span><strong>Alert</strong><em>on contamination, GFF features, dying pores, low quality or a stalled run</em></li>
+                    </ol>
+                    <p className="nano-hint mb-0">No sequencer at hand? <button className="btn btn-link btn-sm p-0 align-baseline" onClick={() => setShowDemo(true)}>See a demo</button> with simulated data.</p>
                 </div>
             ) : (
                 <div className="nano-projects-grid">

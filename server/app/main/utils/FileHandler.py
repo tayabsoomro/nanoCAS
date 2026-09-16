@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import time
 from threading import Lock
 
@@ -30,7 +29,10 @@ from watchdog.events import FileSystemEventHandler
 from .alerts import (SEVERITY_CRITICAL, SEVERITY_WARNING, SOURCE_COVERAGE,
                      AlertLog, Notifier, emit_alert, safe_emit)
 from .constants import BAM_EXTENSIONS, FASTQ_EXTENSIONS
+from .classifiers import get_classifier
 from .coverage_accumulator import CoverageAccumulator
+from .tasks import read_index_manifest
+from .taxa_counter import TaxaCounter
 
 logger = logging.getLogger('nanocas')
 
@@ -111,6 +113,14 @@ class FileHandler(FileSystemEventHandler):
         self.alert_log = AlertLog(self.app_loc)
         self.notifier = Notifier(self.config)
 
+        # Classifier plug-in. The index manifest written at build time is
+        # authoritative; the config is the fallback for older projects.
+        manifest = read_index_manifest(os.path.join(self.app_loc, 'database')) or {}
+        classifier_name = manifest.get('classifier') or (self.config.get('classifier') or {}).get('name') or 'minimap2'
+        self.classifier = get_classifier(classifier_name)
+        self.index_path_override = manifest.get('index_path')
+        self.taxa = TaxaCounter(self.app_loc) if self.classifier.kind == 'taxonomic' else None
+
         # `header_to_query` keys are FASTA reference IDs as pysam exposes
         # them via `bam.references` — i.e. the first whitespace-delimited
         # token of the FASTA header line. NCBI-style headers like
@@ -126,19 +136,16 @@ class FileHandler(FileSystemEventHandler):
             if query.get("header"):
                 headers.append(query["header"])
             for h in headers:
-                key = _canonical_ref_id(h)
+                key = self.classifier.canonical_target(h) if self.classifier.kind == 'taxonomic' else _canonical_ref_id(h)
                 if key:
                     self.header_to_query[key] = query
 
-        # Load regions data
+        # GFF regions of interest (regions.json). Re-read whenever the file
+        # changes so edits made in the UI apply without restarting.
         self.regions_json_path = os.path.join(self.app_loc, 'regions.json')
         self.regions_data = {}
-        if os.path.exists(self.regions_json_path):
-            try:
-                with open(self.regions_json_path, 'r') as f:
-                    self.regions_data = json.load(f)
-            except (OSError, json.JSONDecodeError) as exc:
-                logger.warning(f"Could not load regions.json: {exc}")
+        self._regions_mtime = None
+        self._reload_regions()
 
         # Rolling per-position depth accumulator. Replaces the cumulative
         # merged.bam read pattern that made every batch O(n) and the run
@@ -146,6 +153,22 @@ class FileHandler(FileSystemEventHandler):
         self.coverage_acc = CoverageAccumulator(self.app_loc)
         self._migrate_legacy_merged_bam_if_needed()
         self._repair_unindexed_runs_if_needed()
+
+    def _reload_regions(self) -> None:
+        try:
+            mtime = os.path.getmtime(self.regions_json_path)
+        except OSError:
+            self.regions_data = {}
+            self._regions_mtime = None
+            return
+        if mtime == self._regions_mtime:
+            return
+        try:
+            with open(self.regions_json_path, 'r') as f:
+                self.regions_data = json.load(f)
+            self._regions_mtime = mtime
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(f"Could not load regions.json: {exc}")
 
     # ------------------------------------------------------------------
     # Legacy migration / repair
@@ -380,93 +403,44 @@ class FileHandler(FileSystemEventHandler):
             logger.error(f"BAM file {bam_file} is invalid or corrupted: {e}")
             return False
 
-    def _align_fastq(self, src_path: str, index_file: str, sorted_bam_output: str) -> bool:
-        """``minimap2 -a`` piped straight into ``samtools sort``.
-
-        No shell: paths with spaces or shell metacharacters are passed as
-        argv entries. Both processes get ``-t``/``-@`` threads. Returns
-        True when both exit 0 and the output exists.
-        """
-        threads = _alignment_threads()
-        mm2_cmd = ['minimap2', '-a', '-x', 'map-ont', '-t', str(threads), index_file, src_path]
-        sort_cmd = ['samtools', 'sort', '-@', str(max(1, threads // 2)), '-o', sorted_bam_output, '-']
-        logger.debug(f"Running: {' '.join(mm2_cmd)} | {' '.join(sort_cmd)}")
-        try:
-            mm2 = subprocess.Popen(mm2_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            sort = subprocess.Popen(sort_cmd, stdin=mm2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            mm2.stdout.close()  # let minimap2 get SIGPIPE if samtools dies
-            sort_out, sort_err = sort.communicate()
-            mm2_err = mm2.stderr.read()
-            mm2.stderr.close()
-            mm2.wait()
-        except FileNotFoundError as exc:
-            logger.error(f"Alignment tool not found ({exc}). Are minimap2 and samtools on PATH?")
-            self._raise_alert('tool_missing', SEVERITY_CRITICAL,
-                              f"Cannot align reads: {exc.filename or exc} is not installed or not on PATH.",
-                              once_key='tool_missing')
-            return False
-        if mm2.returncode != 0:
-            logger.error(f"minimap2 failed on {src_path} (exit {mm2.returncode}): "
-                         f"{mm2_err.decode(errors='replace').strip()}")
-            return False
-        if sort.returncode != 0:
-            logger.error(f"samtools sort failed on {src_path} (exit {sort.returncode}): "
-                         f"{sort_err.decode(errors='replace').strip()}")
-            return False
-        return os.path.exists(sorted_bam_output)
-
-    def process_fastq_file(self, src_path: str, timestamp: str | None = None) -> bool:
-        """Align one FASTQ to the project's minimap2 index and fold the
-        resulting per-batch coverage into the rolling accumulator.
-
-        The per-FASTQ sorted BAM is kept on disk under `minimap2/runs/`
-        AND indexed: pysam's `count_coverage` internally calls `fetch`,
-        which requires the index. Per-batch cost is O(reads in batch).
-        Returns True on success; a False return means the batch must NOT
-        be marked processed.
-        """
+    def _classify(self, src_path: str, timestamp: str | None) -> bool:
+        """Run the project's classifier on one batch and fold the result in."""
         index_file = self.get_index_file()
         if not index_file:
             self._raise_alert('index_missing', SEVERITY_CRITICAL,
-                              'No minimap2 index (.mmi) found for this project; reads cannot be aligned. '
+                              'No classifier index found for this project; reads cannot be processed. '
                               'Re-create the project or check the database build log.',
                               once_key='index_missing')
             return False
-
         os.makedirs(self.runs_dir, exist_ok=True)
-        sorted_bam_output = os.path.join(self.runs_dir, f'{os.path.basename(src_path)}_sorted.bam')
-        if not self._align_fastq(src_path, index_file, sorted_bam_output):
-            if os.path.exists(sorted_bam_output):
-                os.remove(sorted_bam_output)
+        try:
+            result = self.classifier.classify(src_path, index_file, self.runs_dir, threads=_alignment_threads())
+        except RuntimeError as exc:
+            message = str(exc)
+            logger.error(f"{self.classifier.name} failed on {src_path}: {message}")
+            if 'not installed' in message or 'not on PATH' in message:
+                self._raise_alert('tool_missing', SEVERITY_CRITICAL,
+                                  f"Cannot process reads: {message}", once_key='tool_missing')
             return False
+        if result.bam_path:
+            return self.calculate_and_record_coverage(result.bam_path, timestamp)
+        return self._record_taxa_batch(result, timestamp)
 
-        if not self.is_bam_valid(sorted_bam_output):
-            logger.error(f"Generated BAM file {sorted_bam_output} is invalid.")
-            if os.path.exists(sorted_bam_output):
-                os.remove(sorted_bam_output)
-            return False
-
-        if not self._ensure_bam_index(sorted_bam_output):
-            return False
-
-        return self.calculate_and_record_coverage(sorted_bam_output, timestamp)
+    def process_fastq_file(self, src_path: str, timestamp: str | None = None) -> bool:
+        """Classify one FASTQ batch. Returns True on success; False means the
+        batch must NOT be marked processed."""
+        return self._classify(src_path, timestamp)
 
     def process_bam_file(self, bam_path: str, timestamp: str | None = None) -> bool:
         """Fold an externally-produced, coordinate-sorted BAM into the
-        rolling accumulator. Returns True on success."""
+        rolling accumulator (alignment classifiers only)."""
+        if self.classifier.kind != 'alignment':
+            logger.error("BAM input is only supported with an alignment classifier")
+            return False
         if not self.is_bam_valid(bam_path):
             logger.error(f"Skipping invalid BAM file: {bam_path}")
             return False
-        os.makedirs(self.runs_dir, exist_ok=True)
-        target = os.path.join(self.runs_dir, f'{os.path.basename(bam_path)}_sorted.bam')
-        if os.path.abspath(bam_path) != os.path.abspath(target):
-            shutil.copy(bam_path, target)
-            src_bai = bam_path + '.bai'
-            if os.path.exists(src_bai):
-                shutil.copy(src_bai, target + '.bai')
-        if not self._ensure_bam_index(target):
-            return False
-        return self.calculate_and_record_coverage(target, timestamp)
+        return self._classify(bam_path, timestamp)
 
     def _ensure_bam_index(self, bam_path: str) -> bool:
         """Make sure a `.bai` sibling exists for `bam_path` and is newer
@@ -484,10 +458,13 @@ class FileHandler(FileSystemEventHandler):
             return False
 
     def get_index_file(self) -> str | None:
-        """Retrieve the database index file (.mmi)."""
+        """The classifier index: from the build manifest, else the newest
+        minimap2 ``.mmi`` in ``database/`` (projects created before manifests)."""
+        if self.index_path_override and os.path.exists(self.index_path_override):
+            return self.index_path_override
         files = sorted(glob.glob(os.path.join(self.app_loc, 'database', '*.mmi')))
         if not files:
-            logger.error("No MMI files found in database location")
+            logger.error("No classifier index found in database location")
             return None
         return files[-1]
 
@@ -510,20 +487,24 @@ class FileHandler(FileSystemEventHandler):
                 logger.error(f"Error folding {batch_bam_path} into coverage accumulator: {e}", exc_info=True)
                 return False
 
+            self._reload_regions()
+            total_reads = sum(self.coverage_acc.read_counts.values()) + self.coverage_acc.unmapped_count
             coverage_data = {}
             for ref in self.coverage_acc.refs():
                 depth_coverage, breadth_coverage, read_count = self.coverage_acc.stats(ref)
+                fraction = (read_count / total_reads * 100.0) if total_reads else 0.0
                 coverage_data[ref] = {
                     "depth": depth_coverage,
                     "breadth": breadth_coverage,
                     "read_count": read_count,
+                    "fraction": fraction,
                 }
                 logger.debug(
                     f"Reference: {ref}, Depth {depth_coverage:.2f}x, "
                     f"Breadth {breadth_coverage:.2f}%, Reads {read_count}"
                 )
                 try:
-                    self.check_coverage_alerts(ref, depth_coverage, breadth_coverage)
+                    self.check_coverage_alerts(ref, depth_coverage, breadth_coverage, read_count, fraction)
                     self._check_region_alerts(ref)
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Alert evaluation failed for {ref}: {e}", exc_info=True)
@@ -532,26 +513,55 @@ class FileHandler(FileSystemEventHandler):
                 "depth": 0.0,
                 "breadth": 0.0,
                 "read_count": self.coverage_acc.unmapped_count,
+                "fraction": (self.coverage_acc.unmapped_count / total_reads * 100.0) if total_reads else 0.0,
             }
 
-            try:
-                write_header = not os.path.exists(self.coverage_file) or os.path.getsize(self.coverage_file) == 0
-                with open(self.coverage_file, 'a') as f:
-                    if write_header:
-                        f.write("timestamp,reference,depth,breadth,read_count\n")
-                    for ref, cov in coverage_data.items():
-                        f.write(f"{timestamp},{ref},{cov['depth']:.6f},{cov['breadth']:.4f},{cov['read_count']}\n")
-            except OSError as e:
-                logger.error(f"Could not append to {self.coverage_file}: {e}")
-            logger.debug(f"Coverage and read counts recorded at {timestamp}")
+            self._append_coverage_rows(timestamp, coverage_data)
 
+        self._finish_batch(timestamp, coverage_data)
+        return True
+
+    def _append_coverage_rows(self, timestamp: str, coverage_data: dict) -> None:
+        try:
+            write_header = not os.path.exists(self.coverage_file) or os.path.getsize(self.coverage_file) == 0
+            with open(self.coverage_file, 'a') as f:
+                if write_header:
+                    f.write("timestamp,reference,depth,breadth,read_count,fraction\n")
+                for ref, cov in coverage_data.items():
+                    f.write(f"{timestamp},{ref},{cov['depth']:.6f},{cov['breadth']:.4f},"
+                            f"{cov['read_count']},{cov.get('fraction', 0.0):.4f}\n")
+        except OSError as e:
+            logger.error(f"Could not append to {self.coverage_file}: {e}")
+        logger.debug(f"Coverage and read counts recorded at {timestamp}")
+
+    def _finish_batch(self, timestamp: str, coverage_data: dict) -> None:
         self.last_processed_time = self.clock().timestamp() if self.clock else time.time()
-        emit_payload = {
-            'projectId': self.project_id,
-            'timestamp': timestamp,
-            'coverage': coverage_data,
-        }
-        safe_emit('coverage_update', emit_payload)
+        safe_emit('coverage_update', {'projectId': self.project_id, 'timestamp': timestamp, 'coverage': coverage_data})
+
+    def _record_taxa_batch(self, result, timestamp: str | None = None) -> bool:
+        """Taxonomic classifiers: accumulate read counts for the configured
+        targets and evaluate read-count / fraction alerts."""
+        if timestamp is None:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        if self.taxa is None:
+            self.taxa = TaxaCounter(self.app_loc)
+        targets = list(self.header_to_query.keys())
+        with self.coverage_lock:
+            self.taxa.update(result.read_counts, result.total_reads, result.unclassified, targets)
+            self.taxa.save()
+            coverage_data = {}
+            for key in targets:
+                reads, fraction = self.taxa.stats(key)
+                coverage_data[key] = {"depth": 0.0, "breadth": 0.0, "read_count": reads, "fraction": fraction}
+                try:
+                    self.check_coverage_alerts(key, 0.0, 0.0, reads, fraction)
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"Alert evaluation failed for {key}: {e}", exc_info=True)
+            unclassified_fraction = (self.taxa.unclassified / self.taxa.total_reads * 100.0) if self.taxa.total_reads else 0.0
+            coverage_data['unmapped'] = {"depth": 0.0, "breadth": 0.0, "read_count": self.taxa.unclassified,
+                                         "fraction": unclassified_fraction}
+            self._append_coverage_rows(timestamp, coverage_data)
+        self._finish_batch(timestamp, coverage_data)
         return True
 
     def _check_region_alerts(self, ref: str):
@@ -596,43 +606,42 @@ class FileHandler(FileSystemEventHandler):
                 'value': region_depth_coverage, 'threshold': threshold,
             })
 
-    def check_coverage_alerts(self, ref: str, depth_coverage: float, breadth_coverage: float):
-        """Fire the depth / breadth alert for `ref` once per run when the
-        configured threshold is reached."""
+    # Threshold kinds: (config flag, config value key, alert type, unit, label)
+    _THRESHOLDS = (
+        ('alert_on_depth', 'depth_threshold', 'depth', 'x', 'depth of coverage'),
+        ('alert_on_breadth', 'breadth_threshold', 'breadth', '%', 'breadth of coverage'),
+        ('alert_on_reads', 'reads_threshold', 'reads', ' reads', 'read count'),
+        ('alert_on_fraction', 'fraction_threshold', 'fraction', '% of reads', 'read fraction'),
+    )
+
+    def check_coverage_alerts(self, ref: str, depth_coverage: float, breadth_coverage: float,
+                              read_count: int = 0, fraction: float = 0.0):
+        """Fire each configured threshold alert for ``ref`` once per run."""
         query = self.header_to_query.get(ref)
         if not query:
             return
         display = query.get('name') or ref
-        if query.get("alert_on_depth", False):
-            depth_threshold = float(query.get("depth_threshold", 0) or 0)
-            if depth_coverage >= depth_threshold:
-                alert_key = f"{ref}_depth"
-                if not self._check_if_alert_sent(alert_key):
-                    message = (f"{display} ({ref}) reached {depth_coverage:.2f}x depth of coverage "
-                               f"(threshold {depth_threshold:g}x)")
-                    self._raise_alert('depth', SEVERITY_CRITICAL, message, details={
-                        'reference': ref, 'name': display, 'value': depth_coverage,
-                        'threshold': depth_threshold, 'breadth': breadth_coverage,
-                    })
-                    self._mark_alert_as_sent(alert_key, {
-                        'type': 'depth', 'reference': ref, 'value': depth_coverage,
-                        'threshold': depth_threshold,
-                    })
-        if query.get("alert_on_breadth", False):
-            breadth_threshold = float(query.get("breadth_threshold", 0) or 0)
-            if breadth_coverage >= breadth_threshold:
-                alert_key = f"{ref}_breadth"
-                if not self._check_if_alert_sent(alert_key):
-                    message = (f"{display} ({ref}) reached {breadth_coverage:.2f}% breadth of coverage "
-                               f"(threshold {breadth_threshold:g}%)")
-                    self._raise_alert('breadth', SEVERITY_CRITICAL, message, details={
-                        'reference': ref, 'name': display, 'value': breadth_coverage,
-                        'threshold': breadth_threshold, 'depth': depth_coverage,
-                    })
-                    self._mark_alert_as_sent(alert_key, {
-                        'type': 'breadth', 'reference': ref, 'value': breadth_coverage,
-                        'threshold': breadth_threshold,
-                    })
+        values = {'depth': depth_coverage, 'breadth': breadth_coverage, 'reads': read_count, 'fraction': fraction}
+        for flag, key, kind, unit, label in self._THRESHOLDS:
+            if not query.get(flag, False):
+                continue
+            try:
+                threshold = float(query.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            value = values[kind]
+            if value < threshold:
+                continue
+            alert_key = f"{ref}_{kind}"
+            if self._check_if_alert_sent(alert_key):
+                continue
+            fmt = f"{value:.0f}" if kind == 'reads' else f"{value:.2f}"
+            message = f"{display} ({ref}) reached {fmt}{unit} {label} (threshold {threshold:g}{unit})"
+            self._raise_alert(kind, SEVERITY_CRITICAL, message, details={
+                'reference': ref, 'name': display, 'value': value, 'threshold': threshold,
+                'depth': depth_coverage, 'breadth': breadth_coverage, 'reads': read_count, 'fraction': fraction,
+            })
+            self._mark_alert_as_sent(alert_key, {'type': kind, 'reference': ref, 'value': value, 'threshold': threshold})
 
     def _raise_alert(self, alert_type: str, severity: str, message: str, *,
                      details: dict | None = None, once_key: str | None = None):
@@ -642,7 +651,7 @@ class FileHandler(FileSystemEventHandler):
             if self._check_if_alert_sent(once_key):
                 return
             self._mark_alert_as_sent(once_key, {'type': alert_type})
-        source = SOURCE_COVERAGE if alert_type in ('depth', 'breadth', 'region_depth') else 'system'
+        source = SOURCE_COVERAGE if alert_type in ('depth', 'breadth', 'reads', 'fraction', 'region_depth') else 'system'
         record = self.alert_log.append(alert_type, severity, message, source=source,
                                        details=details, project_id=self.project_id)
         logger.critical(f"ALERT [{alert_type}] {message}")

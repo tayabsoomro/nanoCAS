@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { IDatabseSetupInput, ILocationConfig } from "../database-setup/database-setup.interfaces";
 import { socket } from "../../../../app.component";
 import { IAlertNotifSetupInput } from '../alert-notif-setup/alert-notif-setup.interfaces';
-import { api, RUN_HEALTH_FIELDS } from '../../../../api';
+import { api, RUN_HEALTH_FIELDS, describeThresholds } from '../../../../api';
 
 type ISummaryComponentProps = {
     databaseSetupInput: IDatabseSetupInput
@@ -85,6 +85,8 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                 queries,
                 device: databaseSetupInput.device.device,
                 gff_file: databaseSetupInput.gff_file,
+                regions: (databaseSetupInput.regions || []).filter(r => r.alert_enabled !== false),
+                classifier: databaseSetupInput.classifier || { name: 'minimap2' },
                 alertNotifConfig: {
                     enableEmail: alertNotifSetupInput.enableEmail,
                     emailConfig: alertNotifSetupInput.emailConfig,
@@ -139,20 +141,17 @@ const SummaryComponent: FunctionComponent<ISummaryComponentProps> = ({ databaseS
                         <tr key={idx}>
                             <th>{idx === 0 ? "Sequences" : ""}</th>
                             <td>{query.name} <code className="text-muted">{query.header}</code></td>
-                            <td>
-                                {query.alert_on_depth ? `depth ≥ ${query.depth_threshold}x` : ''}
-                                {query.alert_on_depth && query.alert_on_breadth ? ', ' : ''}
-                                {query.alert_on_breadth ? `breadth ≥ ${query.breadth_threshold}%` : ''}
-                            </td>
+                            <td>{describeThresholds(query).join(', ')}</td>
                         </tr>
                     ))
                 ) : (
                     <tr><td colSpan={3}>No alert sequences provided.</td></tr>
                 )}
+                <tr><th>Classifier</th><td colSpan={2}>{databaseSetupInput.classifier?.name || 'minimap2'}{databaseSetupInput.classifier?.database ? ` · ${databaseSetupInput.classifier.database}` : ''}</td></tr>
                 {databaseSetupInput.gff_file && (
                     <tr>
-                        <th>GFF File</th>
-                        <td colSpan={2}>{databaseSetupInput.gff_file.split('/').pop()}</td>
+                        <th>Feature alerts</th>
+                        <td colSpan={2}>{(databaseSetupInput.regions || []).filter(r => r.alert_enabled !== false).length} from {databaseSetupInput.gff_file.split('/').pop()}</td>
                     </tr>
                 )}
                 </tbody>

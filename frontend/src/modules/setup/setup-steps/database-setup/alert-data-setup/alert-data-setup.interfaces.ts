@@ -1,6 +1,15 @@
+import { GffFeature } from "../../../../../api";
+
+type IClassifierSelection = {
+    name: string,
+    database?: string,
+}
+
 type IAlertData = {
     queries: IQuery[],
-    gff_file?: string
+    gff_file?: string,
+    regions?: GffFeature[],
+    classifier?: IClassifierSelection,
 }
 
 type IQuery = {
@@ -10,6 +19,10 @@ type IQuery = {
     depth_threshold?: string,
     alert_on_breadth: boolean,
     breadth_threshold?: string,
+    alert_on_reads?: boolean,
+    reads_threshold?: string,
+    alert_on_fraction?: boolean,
+    fraction_threshold?: string,
     header?: string,
     headers?: string[],
     description?: string,
@@ -25,5 +38,6 @@ type IFastaRecord = {
 export type {
     IAlertData,
     IQuery,
-    IFastaRecord
+    IFastaRecord,
+    IClassifierSelection
 }

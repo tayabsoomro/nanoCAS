@@ -8,7 +8,7 @@ import DeviceConfigurationComponent from "./device-configuration/device-configur
 import { IDeviceConfig } from "./device-configuration/device-configuration.interfaces";
 
 const DatabaseSetupComponent: FunctionComponent<IDatabaseSetupProps> = ({ advanceStep, update, initial }) => {
-    const [alertData, setAlertData] = useState<IAlertData>({ queries: initial.queries, gff_file: initial.gff_file });
+    const [alertData, setAlertData] = useState<IAlertData>({ queries: initial.queries, gff_file: initial.gff_file, regions: initial.regions, classifier: initial.classifier });
     const [locationConfig, setLocationConfig] = useState<ILocationConfig>(initial.locations);
     const [deviceConfig, setDeviceConfig] = useState<IDeviceConfig>(initial.device);
     const [error, setError] = useState<string>("");
@@ -25,13 +25,20 @@ const DatabaseSetupComponent: FunctionComponent<IDatabaseSetupProps> = ({ advanc
         }
         const invalid = alertData.queries.filter(q =>
             (q.alert_on_depth && (!q.depth_threshold || isNaN(parseFloat(q.depth_threshold)))) ||
-            (q.alert_on_breadth && (!q.breadth_threshold || isNaN(parseFloat(q.breadth_threshold))))
+            (q.alert_on_breadth && (!q.breadth_threshold || isNaN(parseFloat(q.breadth_threshold)))) ||
+            (q.alert_on_reads && (!q.reads_threshold || isNaN(parseFloat(q.reads_threshold)))) ||
+            (q.alert_on_fraction && (!q.fraction_threshold || isNaN(parseFloat(q.fraction_threshold))))
         );
         if (invalid.length > 0) {
             setError("Every enabled alert needs a numeric threshold.");
             return;
         }
-        update({ queries: alertData.queries, gff_file: alertData.gff_file, locations: locationConfig, device: deviceConfig });
+        if (alertData.classifier && alertData.classifier.name !== 'minimap2' && !alertData.classifier.database) {
+            setError("Enter the database path for the selected classifier.");
+            return;
+        }
+        update({ queries: alertData.queries, gff_file: alertData.gff_file, regions: alertData.regions,
+                 classifier: alertData.classifier, locations: locationConfig, device: deviceConfig });
         advanceStep();
     };
 

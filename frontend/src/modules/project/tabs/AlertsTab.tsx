@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useHistory } from "react-router-dom";
 import { Modal, Button } from "react-bootstrap";
 import { socket } from "../../../app.component";
-import { api, AlertRecord, RuleStatus, RUN_HEALTH_FIELDS, severityBadgeClass } from "../../../api";
+import { api, AlertRecord, Region, RuleStatus, RUN_HEALTH_FIELDS, describeThresholds, severityBadgeClass } from "../../../api";
 
 interface AlertsTabProps {
     projectId: string;
@@ -13,6 +13,8 @@ interface AlertsTabProps {
 const RULE_LABELS: Record<string, string> = {
     depth: 'Depth threshold',
     breadth: 'Breadth threshold',
+    reads: 'Read-count threshold',
+    fraction: 'Read-fraction threshold',
     region_depth: 'Region depth threshold',
     run_not_started: 'Run not started',
     data_stalled: 'Data stalled',
@@ -40,6 +42,33 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
     const [removing, setRemoving] = useState(false);
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<{ ok: boolean; results: Record<string, string>; error?: string } | null>(null);
+    const [regions, setRegions] = useState<Record<string, Region[]>>({});
+    const [regionsDirty, setRegionsDirty] = useState(false);
+    const [savingRegions, setSavingRegions] = useState(false);
+
+    const fetchRegions = useCallback(async () => {
+        try {
+            const res = await api.get(`/get_regions?projectId=${projectId}`);
+            setRegions(res.data.regions || {});
+            setRegionsDirty(false);
+        } catch { }
+    }, [projectId]);
+
+    const updateRegion = (seqid: string, idx: number, patch: Partial<Region>) => {
+        setRegions(prev => ({ ...prev, [seqid]: prev[seqid].map((r, i) => i === idx ? { ...r, ...patch } : r) }));
+        setRegionsDirty(true);
+    };
+
+    const saveRegions = async () => {
+        setSavingRegions(true);
+        try {
+            const res = await api.post('/update_regions', { projectId, regions });
+            setRegions(res.data.regions || {});
+            setRegionsDirty(false);
+        } finally {
+            setSavingRegions(false);
+        }
+    };
 
     const fetchAlerts = useCallback(async () => {
         try {
@@ -54,6 +83,7 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
 
     useEffect(() => {
         fetchAlerts();
+        fetchRegions();
         const handleAlert = (record: AlertRecord) => {
             if (!record.projectId || record.projectId === projectId) fetchAlerts();
         };
@@ -69,7 +99,7 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
             socket.off('analysis_removed', handleRemoved);
             clearInterval(interval);
         };
-    }, [projectId, fetchAlerts, history]);
+    }, [projectId, fetchAlerts, fetchRegions, history]);
 
     const confirmRemoveAnalysis = () => {
         setRemoving(true);
@@ -155,19 +185,17 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
 
             <div className="nano-panel">
                 <div className="nano-panel-header">
-                    <h3>Coverage alert thresholds</h3>
+                    <h3>Target thresholds</h3>
+                    <span className="nano-hint">{projectData.classifier?.name || 'minimap2'}</span>
                 </div>
                 <div className="nano-panel-body">
                     {queries.length > 0 ? (
                         <table className="nano-table">
                             <thead>
                                 <tr>
-                                    <th>Sequence</th>
-                                    <th>Reference ID(s)</th>
-                                    <th>Depth threshold</th>
-                                    <th>Depth alert</th>
-                                    <th>Breadth threshold</th>
-                                    <th>Breadth alert</th>
+                                    <th>Target</th>
+                                    <th>ID(s)</th>
+                                    <th>Alert when</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -175,28 +203,47 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
                                     <tr key={idx}>
                                         <td>{q.name}</td>
                                         <td><code>{[...(q.headers || []), ...(q.header && !(q.headers || []).includes(q.header) ? [q.header] : [])].join(', ')}</code></td>
-                                        <td>{q.depth_threshold ? `${q.depth_threshold}x` : 'N/A'}</td>
-                                        <td>
-                                            <span className={`nano-badge ${q.alert_on_depth ? 'nano-badge-active' : 'nano-badge-inactive'}`}>
-                                                {q.alert_on_depth ? 'Enabled' : 'Disabled'}
-                                            </span>
-                                        </td>
-                                        <td>{q.breadth_threshold ? `${q.breadth_threshold}%` : 'N/A'}</td>
-                                        <td>
-                                            <span className={`nano-badge ${q.alert_on_breadth ? 'nano-badge-active' : 'nano-badge-inactive'}`}>
-                                                {q.alert_on_breadth ? 'Enabled' : 'Disabled'}
-                                            </span>
-                                        </td>
+                                        <td>{describeThresholds(q).join(', ') || <span className="text-muted">no alert</span>}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     ) : (
-                        <div className="nano-empty-state"><p>No alert sequences configured.</p></div>
+                        <div className="nano-empty-state"><p>No targets configured.</p></div>
                     )}
-                    {projectData.gff_file && <p className="nano-hint" style={{ marginTop: 8 }}>GFF regions of interest: <code>{projectData.gff_file}</code></p>}
                 </div>
             </div>
+
+            {(Object.keys(regions).length > 0 || projectData.gff_file) && (
+                <div className="nano-panel">
+                    <div className="nano-panel-header">
+                        <h3>Feature alerts (GFF)</h3>
+                        {regionsDirty && <button className="btn btn-primary btn-sm" onClick={saveRegions} disabled={savingRegions}>{savingRegions ? 'Saving…' : 'Save changes'}</button>}
+                    </div>
+                    <div className="nano-panel-body">
+                        {Object.keys(regions).length === 0 ? (
+                            <div className="nano-empty-state"><p>No feature alerts were selected for this project.</p></div>
+                        ) : (
+                            <table className="nano-table">
+                                <thead><tr><th>Alert</th><th>Feature</th><th>Type</th><th>Sequence</th><th>Position</th><th>Depth threshold (x)</th></tr></thead>
+                                <tbody>
+                                    {Object.entries(regions).flatMap(([seqid, items]) => items.map((r, i) => (
+                                        <tr key={`${seqid}-${i}`} className={r.alert_enabled ? '' : 'nano-alert-row recovered'}>
+                                            <td><input type="checkbox" className="form-check-input" checked={!!r.alert_enabled} onChange={e => updateRegion(seqid, i, { alert_enabled: e.target.checked })} /></td>
+                                            <td>{r.name || r.id}</td>
+                                            <td>{r.type || '—'}</td>
+                                            <td><code>{seqid}</code></td>
+                                            <td className="nano-alert-time">{r.start.toLocaleString()}–{r.end.toLocaleString()}</td>
+                                            <td><input type="number" className="form-control form-control-sm" style={{ width: 90 }} min="0" step="0.5" value={r.threshold} onChange={e => updateRegion(seqid, i, { threshold: parseFloat(e.target.value) || 0 })} /></td>
+                                        </tr>
+                                    )))}
+                                </tbody>
+                            </table>
+                        )}
+                        <p className="nano-hint mt-2">Changes apply to the next processed batch; each feature alert fires once per run.</p>
+                    </div>
+                </div>
+            )}
 
             <div className="nano-panel">
                 <div className="nano-panel-header">

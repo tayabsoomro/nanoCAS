@@ -26,6 +26,9 @@ from .utils.run_health import (DEFAULT_RUN_HEALTH_CONFIG, RULE_DESCRIPTIONS,
                                find_sequencing_summary, normalise_config,
                                standalone_snapshot, summary_search_dirs)
 from .utils.sms import twilio_configured
+from .utils import lab_results as lab
+from .utils.classifiers import describe_classifiers
+from .utils.gff import parse_gff_features, regions_from_selection
 
 logger = logging.getLogger('nanocas')
 
@@ -787,3 +790,110 @@ def simulation_reset():
     cfg = project_store.load_config(project_id) or {}
     _sim.reset_project_run(project_id, cfg.get('minion'))
     return jsonify({'reset': True})
+
+
+# ---------------------------------------------------------------------------
+# Classifiers
+# ---------------------------------------------------------------------------
+
+@main.route('/classifiers', methods=['GET'])
+def classifiers():
+    """Built-in and plug-in classifiers with availability on this host."""
+    return jsonify({'classifiers': describe_classifiers(),
+                    'plugin_dir': os.path.join(NANOCAS_DIR, 'plugins')})
+
+
+# ---------------------------------------------------------------------------
+# GFF regions of interest
+# ---------------------------------------------------------------------------
+
+@main.route('/parse_gff', methods=['POST'])
+def parse_gff_route():
+    """Features in an uploaded GFF3 so the wizard can offer them as alert
+    regions. Body: {file_path, seqids?: [..]}."""
+    body = request.get_json(silent=True) or {}
+    path = body.get('file_path') or ''
+    if not path or not os.path.exists(path) or not _is_safe_path(NANOCAS_DIR, path):
+        return jsonify({'error': 'Invalid file path'}), 400
+    seqids = body.get('seqids')
+    try:
+        parsed = parse_gff_features(path, set(seqids) if seqids else None)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f'GFF parse failed for {path}: {exc}')
+        return jsonify({'error': f'Could not parse GFF: {exc}'}), 400
+    if not parsed['features'] and not parsed['seqids']:
+        return jsonify({'error': 'No features found in the GFF file'}), 400
+    return jsonify(parsed)
+
+
+@main.route('/get_regions', methods=['GET'])
+def get_regions():
+    project_id = request.args.get('projectId')
+    nanocas_path = _validated_project_path(project_id)
+    path = os.path.join(nanocas_path, 'regions.json')
+    regions = {}
+    if os.path.exists(path):
+        try:
+            with open(path) as fh:
+                regions = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            regions = {}
+    return jsonify({'regions': regions})
+
+
+@main.route('/update_regions', methods=['POST'])
+def update_regions():
+    """Replace the project's alert regions. Body: {projectId, regions:
+    {seqid: [{id, start, end, alert_enabled, threshold, ...}]}} or
+    {projectId, selection: [feature, ...]} (wizard layout)."""
+    body = request.get_json(silent=True) or {}
+    project_id = body.get('projectId')
+    nanocas_path = _validated_project_path(project_id)
+    if 'selection' in body:
+        regions = regions_from_selection(body.get('selection') or [])
+    else:
+        raw = body.get('regions') or {}
+        flat = [dict(r, seqid=seqid) for seqid, items in raw.items() for r in (items or [])]
+        regions = regions_from_selection(flat)
+    path = os.path.join(nanocas_path, 'regions.json')
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as fh:
+        json.dump(regions, fh, indent=2)
+    os.replace(tmp, path)
+    return jsonify({'regions': regions, 'count': sum(len(v) for v in regions.values())})
+
+
+# ---------------------------------------------------------------------------
+# Lab results (qPCR) + statistics
+# ---------------------------------------------------------------------------
+
+@main.route('/lab_results', methods=['GET', 'POST', 'DELETE'])
+def lab_results_route():
+    if request.method == 'GET':
+        project_id = request.args.get('projectId')
+        _validated_project_path(project_id)
+        return jsonify({'results': lab.list_results(project_id)})
+    body = request.get_json(silent=True) or {}
+    project_id = body.get('projectId')
+    _validated_project_path(project_id)
+    if request.method == 'DELETE':
+        return jsonify({'deleted': lab.delete_result(project_id, body.get('id') or '')})
+    try:
+        row = lab.add_result(project_id, body)
+    except ValueError as exc:
+        _abort_json(400, str(exc))
+    return jsonify({'result': row, 'results': lab.list_results(project_id)})
+
+
+@main.route('/lab_correlation', methods=['GET'])
+def lab_correlation():
+    project_id = request.args.get('projectId')
+    _validated_project_path(project_id)
+    return jsonify(lab.correlation(project_id))
+
+
+@main.route('/cohort', methods=['GET'])
+def cohort_route():
+    """Detection summary across every project (positivity with 95 % CI,
+    agreement with qPCR, time to detection, pooled RPM-vs-Ct fit)."""
+    return jsonify(lab.cohort())

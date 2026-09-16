@@ -11,7 +11,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import AlignmentViewer from "../../analysis/analysis-data/alignment-viewer.component";
-import { api, parseTimestamp, queryByReference } from "../../../api";
+import { api, parseTimestamp, queryByReference, THRESHOLD_KINDS } from "../../../api";
 
 ChartJS.register(LinearScale, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -34,21 +34,40 @@ interface AlignmentData {
 }
 
 type TimeUnit = 'seconds' | 'minutes' | 'hours' | 'days';
-type Metric = 'depth' | 'breadth';
+type Metric = 'depth' | 'breadth' | 'reads' | 'fraction';
+const METRIC_LABEL: Record<Metric, string> = { depth: 'Depth', breadth: 'Breadth', reads: 'Reads', fraction: 'Read fraction' };
+const METRIC_AXIS: Record<Metric, string> = { depth: 'Depth (x)', breadth: 'Breadth (%)', reads: 'Reads', fraction: '% of reads' };
+const METRIC_UNIT: Record<Metric, string> = { depth: 'x', breadth: '%', reads: '', fraction: '%' };
 
 const UNIT_LABELS: Record<TimeUnit, string> = { seconds: 's', minutes: 'min', hours: 'h', days: 'd' };
 const UNIT_FACTORS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
 const SERIES_COLORS = ['#0f4c5c', '#c0392b', '#2e7d4f', '#b7791f', '#6c5b7b', '#355c7d', '#7a4e2d', '#4b6f44'];
 
 const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, coverageData, coverageMap }) => {
-    const [metric, setMetric] = useState<Metric>('depth');
+    const [metric, setMetric] = useState<Metric>(['kraken2', 'centrifuge'].includes(projectData?.classifier?.name) ? 'reads' : 'depth');
     const [timeUnit, setTimeUnit] = useState<TimeUnit>('minutes');
     const [selectedReference, setSelectedReference] = useState<string | null>(null);
     const [alignmentData, setAlignmentData] = useState<AlignmentData | null>(null);
     const [alignmentError, setAlignmentError] = useState<string | null>(null);
     const [loadingAlignments, setLoadingAlignments] = useState(false);
 
-    const queries = useMemo(() => queryByReference(projectData), [projectData]);
+    const queries = useMemo(() => {
+        const map = queryByReference(projectData);
+        // Taxonomic classifiers key targets by lower-cased taxon name / taxid.
+        const kind = projectData?.classifier?.name;
+        if (kind === 'kraken2' || kind === 'centrifuge') {
+            const tax = new Map<string, any>();
+            (projectData.queries || []).forEach((q: any) => {
+                [...(q.headers || []), ...(q.header ? [q.header] : [])].forEach((h: string) => {
+                    const k = h.trim(); if (!k) return;
+                    tax.set(/^\d+$/.test(k) ? `taxid:${k}` : k.toLowerCase(), q);
+                });
+            });
+            return tax;
+        }
+        return map;
+    }, [projectData]);
+    const taxonomic = ['kraken2', 'centrifuge'].includes(projectData?.classifier?.name);
 
     // References known from the coverage rows (id -> display name), in
     // first-seen order, with `unmapped` excluded from the chart.
@@ -70,7 +89,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
             // chart opens with a threshold line.
             const withAlert = Array.from(references.keys()).find(ref => {
                 const q = queries.get(ref);
-                return q && (q.alert_on_depth || q.alert_on_breadth);
+                return q && THRESHOLD_KINDS.some(k => q[k.flag]);
             });
             setSelectedReference(withAlert ?? references.keys().next().value ?? null);
         }
@@ -80,16 +99,12 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
         if (!ref) return null;
         const q = queries.get(ref);
         if (!q) return null;
-        if (m === 'depth' && q.alert_on_depth && q.depth_threshold !== undefined && q.depth_threshold !== '') {
-            const v = parseFloat(q.depth_threshold);
-            return isNaN(v) ? null : v;
-        }
-        if (m === 'breadth' && q.alert_on_breadth && q.breadth_threshold !== undefined && q.breadth_threshold !== '') {
-            const v = parseFloat(q.breadth_threshold);
-            return isNaN(v) ? null : v;
-        }
-        return null;
+        const kind = THRESHOLD_KINDS.find(k => k.metric === m);
+        if (!kind || !q[kind.flag] || q[kind.key] === undefined || q[kind.key] === '') return null;
+        const v = parseFloat(q[kind.key]);
+        return isNaN(v) ? null : v;
     };
+    const valueOf = (entry: any, m: Metric): number => m === 'depth' ? entry.depth : m === 'breadth' ? entry.breadth : m === 'reads' ? entry.read_count : (entry.fraction ?? 0);
     const threshold = thresholdFor(selectedReference, metric);
 
     useEffect(() => {
@@ -131,7 +146,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
             label: references.get(ref) || ref,
             data: times.map(({ t, ms }) => {
                 const entry = coverageMap.get(`${t}-${ref}`);
-                const y = entry ? (metric === 'depth' ? entry.depth : entry.breadth) : (last[ref] ?? 0);
+                const y = entry ? valueOf(entry, metric) : (last[ref] ?? 0);
                 last[ref] = y;
                 return { x: toElapsed(ms), y };
             }),
@@ -153,7 +168,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                 fill: false,
             });
         }
-        const unit = metric === 'depth' ? 'x' : '%';
+        const unit = METRIC_UNIT[metric];
         const options: any = {
             responsive: true,
             maintainAspectRatio: false,
@@ -171,7 +186,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
             scales: {
                 x: { type: 'linear', title: { display: true, text: `Elapsed time (${UNIT_LABELS[timeUnit]})` }, min: 0 },
                 y: {
-                    title: { display: true, text: metric === 'depth' ? 'Depth (x)' : 'Breadth (%)' },
+                    title: { display: true, text: METRIC_AXIS[metric] },
                     beginAtZero: true,
                     ...(metric === 'breadth' ? { max: 100 } : {}),
                 },
@@ -204,35 +219,31 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                         <table className="nano-table">
                             <thead>
                                 <tr>
-                                    <th>Sequence</th>
-                                    <th>Reference ID</th>
-                                    <th>Depth</th>
-                                    <th>Breadth</th>
+                                    <th>Target</th>
+                                    <th>{taxonomic ? 'Taxon' : 'Reference ID'}</th>
+                                    {!taxonomic && <th>Depth</th>}
+                                    {!taxonomic && <th>Breadth</th>}
                                     <th>Reads</th>
-                                    <th>Depth threshold</th>
-                                    <th>Breadth threshold</th>
+                                    <th>% of reads</th>
+                                    <th>Alert when</th>
                                     <th>Updated</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {latestRows.map(row => {
                                     const q = queries.get(row.reference);
-                                    const dt = q?.alert_on_depth ? parseFloat(q.depth_threshold) : NaN;
-                                    const bt = q?.alert_on_breadth ? parseFloat(q.breadth_threshold) : NaN;
                                     const isUnmapped = row.reference === 'unmapped';
+                                    const hit = (m: Metric) => { const t = thresholdFor(row.reference, m); return t !== null && valueOf(row, m) >= t; };
+                                    const rules = q ? THRESHOLD_KINDS.filter(k => q[k.flag]).map(k => `${k.label.toLowerCase()} ≥ ${q[k.key]}${k.unit === 'reads' ? '' : k.unit === '% of reads' ? '%' : k.unit}`) : [];
                                     return (
                                         <tr key={row.reference}>
-                                            <td>{isUnmapped ? <em>Unmapped reads</em> : row.name}</td>
+                                            <td>{isUnmapped ? <em>{taxonomic ? 'Unclassified reads' : 'Unmapped reads'}</em> : row.name}</td>
                                             <td><code>{isUnmapped ? '—' : row.reference}</code></td>
-                                            <td className={!isNaN(dt) && row.depth >= dt ? 'nano-threshold-hit' : ''}>
-                                                {isUnmapped ? '—' : `${row.depth.toFixed(2)}x`}
-                                            </td>
-                                            <td className={!isNaN(bt) && row.breadth >= bt ? 'nano-threshold-hit' : ''}>
-                                                {isUnmapped ? '—' : `${row.breadth.toFixed(2)}%`}
-                                            </td>
-                                            <td>{row.read_count.toLocaleString()}</td>
-                                            <td>{!isNaN(dt) ? `${dt}x` : <span className="text-muted">off</span>}</td>
-                                            <td>{!isNaN(bt) ? `${bt}%` : <span className="text-muted">off</span>}</td>
+                                            {!taxonomic && <td className={hit('depth') ? 'nano-threshold-hit' : ''}>{isUnmapped ? '—' : `${row.depth.toFixed(2)}x`}</td>}
+                                            {!taxonomic && <td className={hit('breadth') ? 'nano-threshold-hit' : ''}>{isUnmapped ? '—' : `${row.breadth.toFixed(2)}%`}</td>}
+                                            <td className={hit('reads') ? 'nano-threshold-hit' : ''}>{row.read_count.toLocaleString()}</td>
+                                            <td className={hit('fraction') ? 'nano-threshold-hit' : ''}>{row.fraction != null ? `${row.fraction.toFixed(2)}%` : '—'}</td>
+                                            <td>{rules.length ? rules.join(', ') : <span className="text-muted">{isUnmapped ? '' : 'no alert'}</span>}</td>
                                             <td className="nano-alert-time">{row.timestamp}</td>
                                         </tr>
                                     );
@@ -249,11 +260,12 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                     <div className="nano-panel-controls">
                         <Dropdown>
                             <Dropdown.Toggle variant="secondary" size="sm">
-                                {metric === 'depth' ? 'Depth' : 'Breadth'}
+                                {METRIC_LABEL[metric]}
                             </Dropdown.Toggle>
                             <Dropdown.Menu>
-                                <Dropdown.Item onClick={() => setMetric('depth')}>Depth</Dropdown.Item>
-                                <Dropdown.Item onClick={() => setMetric('breadth')}>Breadth</Dropdown.Item>
+                                {(taxonomic ? ['reads', 'fraction'] : ['depth', 'breadth', 'reads', 'fraction']).map(m => (
+                                    <Dropdown.Item key={m} onClick={() => setMetric(m as Metric)}>{METRIC_LABEL[m as Metric]}</Dropdown.Item>
+                                ))}
                             </Dropdown.Menu>
                         </Dropdown>
                         <Dropdown>
@@ -299,7 +311,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                 </div>
             </div>
 
-            <div className="nano-panel">
+            {!taxonomic && <div className="nano-panel">
                 <div className="nano-panel-header">
                     <h3>Read Alignments{selectedName ? `: ${selectedName}` : ''}</h3>
                     <Dropdown>
@@ -339,7 +351,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                         </div>
                     )}
                 </div>
-            </div>
+            </div>}
         </div>
     );
 };

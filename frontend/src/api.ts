@@ -150,3 +150,82 @@ export function queryByReference(projectData: any): Map<string, any> {
     });
     return map;
 }
+
+
+// ---------------------------------------------------------------------------
+// Classifiers, GFF regions, lab results
+// ---------------------------------------------------------------------------
+
+export interface ClassifierInfo {
+    name: string;
+    label: string;
+    description: string;
+    kind: 'alignment' | 'taxonomic';
+    reference_input: 'fasta' | 'database';
+    executables: string[];
+    available: boolean;
+    unavailable_reason: string;
+    database_hint: string;
+    metrics: string[];
+    builtin: boolean;
+}
+
+export interface GffFeature {
+    seqid: string;
+    type: string;
+    start: number;
+    end: number;
+    strand: string;
+    id: string;
+    name: string;
+    product: string;
+    /** UI-only: selected for alerting */
+    alert_enabled?: boolean;
+    /** UI-only: depth threshold (x) */
+    threshold?: number | string;
+}
+
+export interface Region {
+    id: string;
+    name?: string;
+    type?: string;
+    start: number;
+    end: number;
+    alert_enabled: boolean;
+    threshold: number;
+}
+
+export interface LabResult {
+    id: string;
+    target: string;
+    sample_id: string;
+    assay: string;
+    ct: number | null;
+    result: 'positive' | 'negative' | 'inconclusive';
+    date: string;
+    notes: string;
+    created_at: string;
+}
+
+export interface Regression {
+    n: number;
+    slope: number;
+    intercept: number;
+    r: number;
+    r2: number;
+    p: number;
+    rmse: number;
+    x_range: [number, number];
+}
+
+export const THRESHOLD_KINDS: { flag: string; key: string; label: string; unit: string; help: string; metric: string }[] = [
+    { flag: 'alert_on_depth', key: 'depth_threshold', label: 'Depth of coverage', unit: 'x', metric: 'depth', help: 'Mean fold coverage across the sequence.' },
+    { flag: 'alert_on_breadth', key: 'breadth_threshold', label: 'Breadth of coverage', unit: '%', metric: 'breadth', help: 'Percentage of positions covered by at least one read.' },
+    { flag: 'alert_on_reads', key: 'reads_threshold', label: 'Read count', unit: 'reads', metric: 'reads', help: 'Cumulative reads assigned to the target.' },
+    { flag: 'alert_on_fraction', key: 'fraction_threshold', label: 'Read fraction', unit: '% of reads', metric: 'fraction', help: 'Share of all reads assigned to the target.' },
+];
+
+/** Thresholds a query has enabled, as short human strings. */
+export function describeThresholds(q: any): string[] {
+    return THRESHOLD_KINDS.filter(k => q?.[k.flag]).map(k => `${k.label.toLowerCase()} ≥ ${q[k.key]}${k.unit === 'reads' ? ' reads' : k.unit}`);
+}

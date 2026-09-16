@@ -12,7 +12,9 @@
     margin-bottom: var(--ont-spacing-xl);
     max-width: 760px;
 }
-.nano-hero h1 { font-size: 2rem; margin-bottom: var(--ont-spacing-sm); }
+.nano-hero h1 { font-size: 1.75rem; margin-bottom: var(--ont-spacing-sm); }
+.nano-hero { padding-top: var(--ont-spacing-lg); }
+.nano-steps-compact { text-align: left; max-width: 720px; margin: var(--ont-spacing-md) auto; }
 .nano-hero > p { color: var(--ont-dark-gray); font-size: var(--ont-font-size-md); max-width: 640px; }
 
 .nano-steps {

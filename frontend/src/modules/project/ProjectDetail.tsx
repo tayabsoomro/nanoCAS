@@ -6,10 +6,11 @@ import { api, AlertRecord } from "../../api";
 import CoverageTab from "./tabs/CoverageTab";
 import RunHealthTab from "./tabs/RunHealthTab";
 import AlertsTab from "./tabs/AlertsTab";
+import ResultsTab from "./tabs/ResultsTab";
 import "./project-detail.css";
 
-type TabType = 'coverage' | 'runhealth' | 'alerts';
-const TABS: TabType[] = ['coverage', 'runhealth', 'alerts'];
+type TabType = 'coverage' | 'runhealth' | 'alerts' | 'results';
+const TABS: TabType[] = ['coverage', 'runhealth', 'alerts', 'results'];
 
 interface ProjectParams {
     id: string;
@@ -296,7 +297,7 @@ const ProjectDetail: React.FC = () => {
                         {title}
                         {projectData.demo && <span className="nano-badge nano-badge-info nano-title-tag">demo</span>}
                     </h2>
-                    <span className="nano-project-path">{projectData.minion}</span>
+                    <span className="nano-project-path">{projectData.minion}{projectData.classifier?.name ? ` · ${projectData.classifier.name}` : ''}</span>
                     {fileProgress && (fileProgress.files_processed > 0 || fileProgress.files_failed > 0) && (
                         <span className="nano-progress-indicator" title={fileProgress.last_file ?? ''}>
                             <strong>{fileProgress.files_processed.toLocaleString()}</strong>
@@ -408,6 +409,9 @@ const ProjectDetail: React.FC = () => {
                 <button className={`nano-tab ${activeTab === 'alerts' ? 'active' : ''}`} onClick={() => switchTab('alerts')}>
                     Alerts{unseenAlerts > 0 && <span className="nano-badge-count">{unseenAlerts}</span>}
                 </button>
+                <button className={`nano-tab ${activeTab === 'results' ? 'active' : ''}`} onClick={() => switchTab('results')}>
+                    Lab results
+                </button>
             </div>
 
             <div className="nano-tab-content">
@@ -424,6 +428,9 @@ const ProjectDetail: React.FC = () => {
                 )}
                 {activeTab === 'alerts' && (
                     <AlertsTab projectId={id!} projectData={projectData} monitoring={listenerRunning} />
+                )}
+                {activeTab === 'results' && (
+                    <ResultsTab projectId={id!} projectData={projectData} />
                 )}
             </div>
 
