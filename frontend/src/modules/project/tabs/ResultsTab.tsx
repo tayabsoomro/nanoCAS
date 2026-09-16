@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Chart as ChartJS, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
-import { api, LabResult, Regression, formatNumber } from "../../../api";
+import { api, LabResult, Regression, formatNumber, queryKey } from "../../../api";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -48,9 +48,7 @@ const ResultsTab: React.FC<ResultsTabProps> = ({ projectId, projectData }) => {
     const targets: { ref: string; name: string }[] = useMemo(() => {
         const out: { ref: string; name: string }[] = [];
         (projectData?.queries || []).forEach((q: any) => {
-            const ref = (q.header || (q.headers || [])[0] || '').trim().split(/\s+/)[0];
-            const kind = projectData?.classifier?.name;
-            const key = (kind === 'kraken2' || kind === 'centrifuge') ? (q.header || '').trim().toLowerCase() : ref;
+            const key = queryKey(q, projectData);
             if (key && !out.find(o => o.ref === key)) out.push({ ref: key, name: q.name || key });
         });
         return out;

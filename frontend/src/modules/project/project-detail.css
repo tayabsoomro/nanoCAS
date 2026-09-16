@@ -650,3 +650,6 @@
     .nano-project-header { flex-direction: column; gap: var(--ont-spacing-md); }
     .nano-notif-grid { flex-direction: column; gap: var(--ont-spacing-sm); }
 }
+
+.nano-demo-guide ul { margin: 6px 0 4px 18px; padding: 0; }
+.nano-demo-guide li { margin-bottom: 2px; }

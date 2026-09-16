@@ -152,3 +152,77 @@ def test_live_simulation_via_api(client):
         simulator.stop_simulation(pid)
         stop_listener(pid)
         project_store.delete_project(pid)
+
+
+@needs_tools
+def test_demo_project_covers_every_subsystem(client, monkeypatch, tmp_path):
+    """A seeded demo must exercise GFF feature alerts, all threshold kinds,
+    lab results, simulated instrument status and the demo guide."""
+    cfg = simulator.create_demo_project(scenario='contamination', seed_history=True, history_batches=10)
+    pid = cfg['projectId']
+    try:
+        pdir = project_store.project_dir(pid)
+        assert cfg['gff_file'] and os.path.exists(cfg['gff_file'])
+        regions = client.get(f'/get_regions?projectId={pid}').json['regions']
+        assert {r['id'] for r in regions['Contaminant_X']} == {'gene001', 'gene002'}
+        assert cfg['classifier']['kind'] == 'alignment'
+        assert all(q.get('key') for q in cfg['queries'])
+        kinds = {q['name']: [k for k in ('alert_on_depth', 'alert_on_breadth', 'alert_on_reads', 'alert_on_fraction') if q.get(k)]
+                 for q in cfg['queries']}
+        assert kinds['Contaminant X'] == ['alert_on_depth', 'alert_on_breadth', 'alert_on_fraction']
+        assert kinds['Pathogen Y'] == ['alert_on_depth', 'alert_on_reads']
+        alerts = client.get(f'/get_alerts?projectId={pid}').json['alerts']
+        types = {a['type'] for a in alerts}
+        assert {'depth', 'breadth', 'fraction', 'region_depth'} <= types, types
+        region_ids = {a['details'].get('region_id') for a in alerts if a['type'] == 'region_depth'}
+        assert region_ids == {'gene001', 'gene002'}
+        labs = client.get(f'/lab_results?projectId={pid}').json['results']
+        assert {r['target'] for r in labs} == {'Contaminant_X', 'Pathogen_Y'}
+        rh = client.get(f'/run_health?projectId={pid}').json
+        assert rh['totals']['reads'] == 10 * 200
+        assert [g['tab'] for g in cfg['demoGuide']][:1] == ['alerts']
+        aln = client.get(f'/get_alignments?projectId={pid}&reference=Contaminant_X').json
+        assert {r['id'] for r in aln['regions']} >= {'gene001', 'gene002', 'gene003'}
+    finally:
+        project_store.delete_project(pid)
+
+
+def test_demo_project_with_plugin_classifier(client, monkeypatch, tmp_path):
+    """The example k-mer plug-in runs the taxonomic path end to end with no
+    external tools at all."""
+    monkeypatch.setenv('NANOCAS_PLUGIN_DIR', str(tmp_path / 'plugins'))
+    cfg = simulator.create_demo_project(scenario='contamination', seed_history=True, history_batches=6,
+                                        classifier='kmer_demo')
+    pid = cfg['projectId']
+    try:
+        assert (tmp_path / 'plugins' / 'kmer_demo_classifier.py').exists()
+        assert cfg['classifier'] == {'name': 'kmer_demo', 'database': None, 'kind': 'taxonomic',
+                                     'label': 'Example k-mer classifier (taxonomic)'}
+        assert cfg['gff_file'] is None
+        cov = client.get(f'/get_coverage?projectId={pid}').json
+        last_ts = cov[-1]['timestamp']
+        latest = {r['reference']: r for r in cov if r['timestamp'] == last_ts}
+        assert latest['Host_control']['read_count'] > 500 and latest['Host_control']['depth'] == 0.0
+        assert latest['Contaminant_X']['read_count'] > 0
+        assert latest['unmapped']['read_count'] > 0
+        assert latest['Host_control']['name'] == 'Host control'
+        alerts = {a['type'] for a in client.get(f'/get_alerts?projectId={pid}').json['alerts']}
+        assert 'fraction' in alerts or 'reads' in alerts
+        assert 'region_depth' not in alerts
+        names = {c['name']: c for c in client.get('/classifiers').json['classifiers']}
+        assert names['kmer_demo']['builtin'] is False and names['kmer_demo']['available'] is True
+        corr = client.get(f'/lab_correlation?projectId={pid}').json
+        assert any(t['reference'] == 'Contaminant_X' and t['detected'] for t in corr['targets'])
+    finally:
+        project_store.delete_project(pid)
+        from app.main.utils.classifiers.registry import load_plugins
+        load_plugins(plugin_dir=str(tmp_path / 'none'), force=True)
+
+
+def test_simulated_device_status_follows_scenario(tmp_path):
+    refs = build_demo_references()
+    sim = SimulatedRun('p', str(tmp_path), refs, 'not_started', interval_sec=0, total_batches=2, emit=False)
+    assert sim.device_status()['acquisition_status'] == 'READY'
+    sim2 = SimulatedRun('p', str(tmp_path), refs, 'clean', interval_sec=0, total_batches=2, emit=False)
+    assert sim2.device_status()['acquisition_status'] == 'PROCESSING'
+    assert sim2.device_status()['channel_count'] == 512

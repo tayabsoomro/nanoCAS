@@ -37,6 +37,7 @@ indel errors; "junk" reads are random sequence and end up unmapped.
 from __future__ import annotations
 
 import gzip
+import json
 import logging
 import math
 import os
@@ -66,12 +67,47 @@ DEMO_REFERENCES = (
 
 DEMO_QUERIES = [
     {'name': 'Host control', 'header': 'Host_control', 'headers': ['Host_control'],
-     'depth_threshold': '', 'alert_on_depth': False, 'breadth_threshold': '', 'alert_on_breadth': False},
+     'alert_on_depth': False, 'alert_on_breadth': False, 'alert_on_reads': False, 'alert_on_fraction': False},
     {'name': 'Contaminant X', 'header': 'Contaminant_X', 'headers': ['Contaminant_X'],
-     'depth_threshold': '5', 'alert_on_depth': True, 'breadth_threshold': '50', 'alert_on_breadth': True},
+     'depth_threshold': '5', 'alert_on_depth': True, 'breadth_threshold': '50', 'alert_on_breadth': True,
+     'fraction_threshold': '5', 'alert_on_fraction': True, 'alert_on_reads': False},
     {'name': 'Pathogen Y', 'header': 'Pathogen_Y', 'headers': ['Pathogen_Y'],
-     'depth_threshold': '3', 'alert_on_depth': True, 'breadth_threshold': '', 'alert_on_breadth': False},
+     'depth_threshold': '3', 'alert_on_depth': True, 'alert_on_breadth': False,
+     'reads_threshold': '100', 'alert_on_reads': True, 'alert_on_fraction': False},
 ]
+
+# Same targets expressed for a taxonomic classifier (no depth / breadth).
+DEMO_QUERIES_TAXONOMIC = [
+    {'name': 'Host control', 'header': 'Host_control', 'headers': ['Host_control'],
+     'alert_on_depth': False, 'alert_on_breadth': False, 'alert_on_reads': False, 'alert_on_fraction': False},
+    {'name': 'Contaminant X', 'header': 'Contaminant_X', 'headers': ['Contaminant_X'],
+     'alert_on_depth': False, 'alert_on_breadth': False,
+     'fraction_threshold': '5', 'alert_on_fraction': True, 'reads_threshold': '500', 'alert_on_reads': True},
+    {'name': 'Pathogen Y', 'header': 'Pathogen_Y', 'headers': ['Pathogen_Y'],
+     'alert_on_depth': False, 'alert_on_breadth': False,
+     'reads_threshold': '100', 'alert_on_reads': True, 'alert_on_fraction': False},
+]
+
+# GFF3 features on the synthetic references; the ones with alert_enabled
+# become feature alerts (regions.json) in every demo project.
+DEMO_FEATURES = [
+    # seqid, type, start, end, strand, id, name, product, alert threshold (None = no alert)
+    ('Contaminant_X', 'gene', 1000, 4000, '+', 'gene001', 'toxA', 'Toxin A', 4.0),
+    ('Contaminant_X', 'CDS', 1000, 4000, '+', 'cds001', 'toxA', 'Toxin A', None),
+    ('Contaminant_X', 'gene', 12000, 15000, '-', 'gene002', 'resB', 'Resistance protein B', 4.0),
+    ('Contaminant_X', 'gene', 22000, 23500, '+', 'gene003', 'hlyC', 'Haemolysin C', None),
+    ('Pathogen_Y', 'gene', 500, 3500, '+', 'gene004', 'virD', 'Virulence factor D', 2.0),
+    ('Pathogen_Y', 'gene', 9000, 11000, '-', 'gene005', 'ompE', 'Outer membrane protein E', None),
+    ('Host_control', 'gene', 5000, 8000, '+', 'gene006', 'actB', 'Actin beta', None),
+]
+
+DEMO_CLASSIFIERS = {
+    'minimap2': 'minimap2 alignment (depth, breadth, GFF features)',
+    'kmer_demo': 'Example plug-in, taxonomic (read counts only)',
+}
+
+EXAMPLE_PLUGIN = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))), 'examples', 'plugins', 'kmer_demo_classifier.py')
 
 # Run-health settings that make a demo react within a minute or two
 # instead of the production defaults (15/30 min timeouts, 30 s checks).
@@ -110,6 +146,33 @@ def write_fasta(path: str, references: dict[str, str]) -> None:
             fh.write(f'>{ref_id} {descriptions.get(ref_id, "")}\n')
             for i in range(0, len(seq), 80):
                 fh.write(seq[i:i + 80] + '\n')
+
+
+def write_demo_gff(path: str) -> None:
+    with open(path, 'w') as fh:
+        fh.write('##gff-version 3\n')
+        for seqid, ftype, start, end, strand, fid, name, product, _ in DEMO_FEATURES:
+            fh.write(f'{seqid}\tnanocas-demo\t{ftype}\t{start}\t{end}\t.\t{strand}\t.\t'
+                     f'ID={fid};Name={name};product={product}\n')
+
+
+def demo_region_selection() -> list[dict]:
+    return [{'seqid': seqid, 'type': ftype, 'start': start, 'end': end, 'id': fid, 'name': name,
+             'alert_enabled': True, 'threshold': thr}
+            for seqid, ftype, start, end, strand, fid, name, product, thr in DEMO_FEATURES if thr is not None]
+
+
+def install_example_plugin() -> str:
+    """Copy the shipped example classifier into the user's plug-in directory
+    (if not already there) and (re)load plug-ins. Returns the classifier name."""
+    from .classifiers.registry import PLUGIN_DIR, load_plugins
+    plugin_dir = os.getenv('NANOCAS_PLUGIN_DIR') or PLUGIN_DIR
+    os.makedirs(plugin_dir, exist_ok=True)
+    target = os.path.join(plugin_dir, 'kmer_demo_classifier.py')
+    if not os.path.exists(target) or os.path.getmtime(EXAMPLE_PLUGIN) > os.path.getmtime(target):
+        shutil.copy(EXAMPLE_PLUGIN, target)
+    load_plugins(force=True)
+    return 'kmer_demo'
 
 
 def read_fasta(path: str) -> dict[str, str]:
@@ -329,6 +392,27 @@ class SimulatedRun(threading.Thread):
             'expect': SCENARIOS[self.scenario]['expect'],
         }
 
+    def device_status(self) -> dict:
+        """MinKNOW-like instrument status for the run-health monitor, so demo
+        projects show the instrument panel without a real MinKNOW."""
+        if self.scenario == 'not_started':
+            acquisition = 'READY'
+        elif self.finished or self._stop_event.is_set():
+            acquisition = 'FINISHING' if self.batches_written else 'READY'
+        elif self.scenario == 'stalled' and not self.script.writes_batch(self.batches_written):
+            acquisition = 'FINISHING'
+        else:
+            acquisition = 'PROCESSING'
+        return {
+            'simulated': True,
+            'position_state': 'STATE_RUNNING',
+            'acquisition_status': acquisition,
+            'flow_cell_id': f'FAX{self.run_id[-5:].zfill(5)}',
+            'product_code': 'FLO-MIN114',
+            'channel_count': 512,
+            'has_flow_cell': True,
+        }
+
     def _emit_status(self, final: bool = False) -> None:
         if self.emit:
             payload = self.status()
@@ -511,9 +595,34 @@ def _is_simulated_dir(pdir: str, watch_dir: str) -> bool:
 # Demo projects
 # ---------------------------------------------------------------------------
 
+def demo_guide(scenario: str, classifier: str, seeded: bool) -> list[dict]:
+    """Short, tab-linked checklist of what a demo project demonstrates."""
+    expect = SCENARIOS[scenario]['expect']
+    if classifier != 'minimap2':
+        # Taxonomic classifiers have no depth/breadth; the same scenario
+        # fires the read-count / read-fraction thresholds instead.
+        expect = [{'depth': 'reads', 'breadth': 'fraction'}.get(e, e) for e in expect]
+        expect = list(dict.fromkeys(expect))
+    guide = [
+        {'tab': 'coverage', 'text': ('Read counts and read fractions per target (taxonomic mode, no depth/breadth)'
+                                     if classifier != 'minimap2' else
+                                     'Depth and breadth per target, the threshold line, and the alignment viewer with GFF features')},
+        {'tab': 'alerts', 'text': ('Target thresholds' + (', feature alerts from the GFF' if classifier == 'minimap2' else '')
+                                   + ', run-health rules, notification channels and the alert history')},
+        {'tab': 'runhealth', 'text': 'Q-score, read length, throughput and pore panels from the simulated sequencing summary, plus simulated instrument status'},
+        {'tab': 'results', 'text': 'Seeded qPCR results next to what the run found, with the read-yield vs Ct relationship' if seeded
+                                   else 'Enter qPCR results after the run to compare with what nanoCAS found'},
+    ]
+    if expect:
+        guide.insert(0, {'tab': 'alerts', 'text': f"Scenario '{SCENARIOS[scenario]['label']}': expect {', '.join(expect)}"})
+    if classifier != 'minimap2':
+        guide.append({'tab': None, 'text': 'This project runs the example plug-in classifier from ~/.nanocas/plugins (see /classifiers)'})
+    return guide
+
+
 def create_demo_project(*, scenario: str = DEFAULT_SCENARIO, name: str | None = None,
                         seed_history: bool = False, history_batches: int = 36,
-                        progress=None) -> dict:
+                        classifier: str = 'minimap2', progress=None) -> dict:
     """Create a ready-to-run demo project and return its config.
 
     The project watches ``<project>/simulated_run/fastq_pass``; nothing
@@ -522,6 +631,10 @@ def create_demo_project(*, scenario: str = DEFAULT_SCENARIO, name: str | None = 
     from .tasks import int_download_database
     if scenario not in SCENARIOS:
         raise ValueError(f'Unknown scenario {scenario!r}')
+    if classifier not in DEMO_CLASSIFIERS:
+        raise ValueError(f'Unknown demo classifier {classifier!r}; choose from {", ".join(DEMO_CLASSIFIERS)}')
+    if classifier == 'kmer_demo':
+        install_example_plugin()
 
     project_id = project_store.new_project_id()
     pdir = project_store.project_dir(project_id)
@@ -533,6 +646,12 @@ def create_demo_project(*, scenario: str = DEFAULT_SCENARIO, name: str | None = 
     references = build_demo_references()
     ref_path = os.path.join(pdir, 'demo_reference.fasta')
     write_fasta(ref_path, references)
+    gff_path = os.path.join(pdir, 'gff_file.gff')
+    write_demo_gff(gff_path)
+    if classifier == 'minimap2':
+        from .gff import regions_from_selection
+        with open(os.path.join(pdir, 'regions.json'), 'w') as fh:
+            json.dump(regions_from_selection(demo_region_selection()), fh, indent=2)
     # The index builder deletes the *directory* of each query file after
     # use (it expects wizard uploads in temp dirs), so hand it a copy.
     upload_dir = tempfile.mkdtemp(prefix='demo_', dir=project_store.ensure_workspace())
@@ -540,18 +659,23 @@ def create_demo_project(*, scenario: str = DEFAULT_SCENARIO, name: str | None = 
     shutil.copy(ref_path, upload_copy)
 
     label = SCENARIOS[scenario]['label']
+    queries = DEMO_QUERIES if classifier == 'minimap2' else DEMO_QUERIES_TAXONOMIC
     cfg = {
         'projectId': project_id,
-        'projectName': name or (f'Demo: {label}' + (' (completed run)' if seed_history else '')),
+        'projectName': name or (f'Demo: {label}' + (' (completed run)' if seed_history else '')
+                                + (' · plug-in classifier' if classifier != 'minimap2' else '')),
         'minion': watch_dir,
         'fileType': 'FASTQ',
         'device': '',
-        'gff_file': None,
-        'queries': [dict(q, file=upload_copy) for q in DEMO_QUERIES],
+        'gff_file': gff_path if classifier == 'minimap2' else None,
+        'classifier': {'name': classifier, 'database': None},
+        'queries': [dict(q, file=upload_copy) for q in queries],
         'alertNotifConfig': {'enableEmail': False, 'enableSMS': False},
         'runHealthConfig': normalise_config(DEMO_RUN_HEALTH_CONFIG),
         'demo': True,
         'demoScenario': scenario,
+        'demoClassifier': classifier,
+        'demoGuide': demo_guide(scenario, classifier, seed_history),
         'createdAt': project_store.now_iso(),
     }
     project_store.save_config(project_id, cfg)
@@ -614,6 +738,7 @@ def replay_run(project_id: str, scenario: str, *, batches: int = 36, interval_mi
                                file_handler=handler, emit_updates=False)
     monitor.started_at = start_wall
     monitor.notifier.send = lambda *a, **k: None
+    monitor.status_provider = sim.device_status
 
     fired: list[str] = []
     for b in range(batches):
@@ -628,6 +753,9 @@ def replay_run(project_id: str, scenario: str, *, batches: int = 36, interval_mi
         fired = [r['id'] for r in snapshot['rules'] if r['active']]
         if progress:
             progress(int(100 * (b + 1) / batches), f'Replaying batch {b + 1}/{batches}')
+    # The replayed run is over: record the instrument as finishing.
+    sim.finished = True
+    monitor._persist_instrument(sim.device_status())
     return {'batches': sim.batches_written, 'reads': sim.reads_written, 'active_rules': fired,
             'alerts': handler.alert_log.count()}
 

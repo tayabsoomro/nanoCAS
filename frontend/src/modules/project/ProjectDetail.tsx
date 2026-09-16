@@ -11,6 +11,7 @@ import "./project-detail.css";
 
 type TabType = 'coverage' | 'runhealth' | 'alerts' | 'results';
 const TABS: TabType[] = ['coverage', 'runhealth', 'alerts', 'results'];
+const TAB_LABELS: Record<TabType, string> = { coverage: 'Coverage', runhealth: 'Run Health', alerts: 'Alerts', results: 'Lab results' };
 
 interface ProjectParams {
     id: string;
@@ -62,6 +63,7 @@ const ProjectDetail: React.FC = () => {
     const [scenarios, setScenarios] = useState<Scenario[]>([]);
     const [simError, setSimError] = useState<string | null>(null);
     const [simBusy, setSimBusy] = useState(false);
+    const [guideOpen, setGuideOpen] = useState(true);
     const activeTabRef = useRef(activeTab);
     activeTabRef.current = activeTab;
 
@@ -360,9 +362,26 @@ const ProjectDetail: React.FC = () => {
             {!isDatabaseReady && (
                 <div className="nano-alert-banner info">
                     <span className="nano-alert-message">
-                        The reference index for this project has not been built yet (or the build failed). Monitoring
-                        cannot start until a <code>.mmi</code> index exists under the project's database directory.
+                        The classifier index for this project has not been built yet (or the build failed). Monitoring
+                        cannot start until it exists; check the Alerts tab and the server log for the build error.
                     </span>
+                </div>
+            )}
+            {projectData.demo && Array.isArray(projectData.demoGuide) && projectData.demoGuide.length > 0 && guideOpen && (
+                <div className="nano-alert-banner neutral nano-demo-guide">
+                    <div className="nano-alert-message">
+                        <strong>What this demo shows</strong>
+                        <ul>
+                            {projectData.demoGuide.map((g: any, i: number) => (
+                                <li key={i}>
+                                    {g.tab ? <button className="btn btn-link btn-sm p-0 align-baseline" onClick={() => switchTab(g.tab)}>{TAB_LABELS[g.tab as TabType] || g.tab}</button> : null}
+                                    {g.tab ? ': ' : ''}{g.text}
+                                </li>
+                            ))}
+                        </ul>
+                        {!simulation?.running && !listenerRunning && <span className="nano-hint">Use <em>Simulate a run</em> to watch it happen live.</span>}
+                    </div>
+                    <button className="nano-alert-close" onClick={() => setGuideOpen(false)} aria-label="Dismiss">&times;</button>
                 </div>
             )}
             {simulation && (simulation.running || simulation.finished) && (

@@ -23,8 +23,8 @@ from .utils.LinuxNotification import LinuxNotification
 from .utils.alerts import AlertLog, Notifier
 from .utils.directory_scanner import scan_directory
 from .utils.run_health import (DEFAULT_RUN_HEALTH_CONFIG, RULE_DESCRIPTIONS,
-                               find_sequencing_summary, normalise_config,
-                               standalone_snapshot, summary_search_dirs)
+                               find_sequencing_summary, last_instrument_status,
+                               normalise_config, standalone_snapshot, summary_search_dirs)
 from .utils.sms import twilio_configured
 from .utils import lab_results as lab
 from .utils.classifiers import describe_classifiers
@@ -104,9 +104,17 @@ def health():
 
 @main.route('/check_database_status', methods=['GET'])
 def check_database_status():
+    """Ready when the classifier index exists: the build manifest's index
+    path for any classifier, or a minimap2 .mmi for projects that predate
+    manifests."""
+    from .utils.tasks import read_index_manifest
     nanocas_path = _validated_project_path(request.args.get('projectId'))
+    manifest = read_index_manifest(os.path.join(nanocas_path, 'database')) or {}
+    index_path = manifest.get('index_path')
+    if index_path and os.path.exists(index_path):
+        return jsonify({'is_ready': True, 'classifier': manifest.get('classifier')})
     mmi_files = glob.glob(os.path.join(nanocas_path, 'database', '*.mmi'))
-    return jsonify({'is_ready': len(mmi_files) > 0})
+    return jsonify({'is_ready': len(mmi_files) > 0, 'classifier': manifest.get('classifier') or 'minimap2'})
 
 
 @main.route('/get_uid', methods=["POST"])
@@ -308,13 +316,15 @@ def _ref_display_names(cfg: dict | None) -> dict[str, str]:
     from .utils.FileHandler import _canonical_ref_id
     names: dict[str, str] = {}
     for q in (cfg or {}).get('queries', []) or []:
+        if q.get('key'):
+            names[q['key']] = q.get('name') or q['key']
         headers = list(q.get('headers') or [])
         if q.get('header'):
             headers.append(q['header'])
         for h in headers:
             key = _canonical_ref_id(h)
             if key:
-                names[key] = q.get('name') or key
+                names.setdefault(key, q.get('name') or key)
     return names
 
 
@@ -345,6 +355,7 @@ def get_coverage():
                         'depth': float(depth),
                         'breadth': float(breadth),
                         'read_count': int(float(read_count)),
+                        'fraction': float(parts[5]) if len(parts) > 5 and parts[5] != '' else None,
                     })
                 except ValueError:
                     continue
@@ -577,6 +588,7 @@ def run_health():
         return jsonify({'error': 'No sequencing summary file found', 'monitoring': bool(listener)}), 404
     snapshot = standalone_snapshot(summary_path, cfg.get('runHealthConfig'))
     snapshot['projectId'] = project_id
+    snapshot['minknow'] = last_instrument_status(nanocas_path)
     return jsonify(snapshot)
 
 
@@ -706,7 +718,8 @@ from .utils import simulator as _sim  # noqa: E402
 
 @main.route('/simulation/scenarios', methods=['GET'])
 def simulation_scenarios():
-    return jsonify({'scenarios': _sim.scenario_list(), 'default': _sim.DEFAULT_SCENARIO})
+    return jsonify({'scenarios': _sim.scenario_list(), 'default': _sim.DEFAULT_SCENARIO,
+                    'classifiers': [{'id': k, 'label': v} for k, v in _sim.DEMO_CLASSIFIERS.items()]})
 
 
 @main.route('/demo/create', methods=['POST'])
@@ -720,7 +733,8 @@ def demo_create():
     try:
         cfg = _sim.create_demo_project(scenario=scenario, name=body.get('name') or None,
                                        seed_history=bool(body.get('seed_history')),
-                                       history_batches=int(body.get('history_batches') or 36))
+                                       history_batches=int(body.get('history_batches') or 36),
+                                       classifier=body.get('classifier') or 'minimap2')
     except RuntimeError as exc:
         _abort_json(500, str(exc))
     except ValueError as exc:

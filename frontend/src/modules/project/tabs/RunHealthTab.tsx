@@ -348,6 +348,7 @@ const RunHealthTab: React.FC<RunHealthTabProps> = ({ projectId, projectData, mon
                             <dd>
                                 {data.minknow ? (
                                     <>
+                                        {data.minknow.simulated ? 'simulated · ' : ''}{data.minknow.stale ? 'last known · ' : ''}
                                         {data.minknow.acquisition_status || 'unknown'}
                                         {data.minknow.flow_cell_id ? ` · flow cell ${data.minknow.flow_cell_id}` : ''}
                                         {data.minknow.product_code ? ` (${data.minknow.product_code})` : ''}

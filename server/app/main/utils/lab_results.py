@@ -155,13 +155,18 @@ def nanopore_metrics(project_id: str, cfg: dict) -> dict[str, dict]:
         total_reads = sum(r['read_count'] for r in rows if r['timestamp'] == last_ts)
 
     out: dict[str, dict] = {}
+    classifier_name = (cfg.get('classifier') or {}).get('name', 'minimap2')
     for q in cfg.get('queries', []) or []:
         keys = [q.get('header')] + list(q.get('headers') or [])
-        classifier_kind = (cfg.get('classifier') or {}).get('name', 'minimap2')
         for key in keys:
             if not key:
                 continue
-            ref = key.strip().lower() if classifier_kind in ('kraken2', 'centrifuge') else _canonical_ref_id(key)
+            if q.get('key') and key == (q.get('header') or key):
+                ref = q['key']
+            elif classifier_name in ('kraken2', 'centrifuge'):
+                ref = key.strip().lower()
+            else:
+                ref = _canonical_ref_id(key)
             series = by_ref.get(ref, [])
             latest = series[-1] if series else None
             thresholds = []

@@ -821,3 +821,17 @@ appears in the empty state. Wizard panel "What to watch for" now holds the class
 taxonomic tools, taxon entry, four threshold kinds and the GFF feature picker. New **Lab results** tab and
 **Across runs** page; Alerts tab shows target thresholds and an editable feature-alert table; Coverage tab handles
 reads/fraction metrics and hides alignment views for taxonomic projects.
+
+## 8.6 Demo coverage of every subsystem
+
+Demo projects now carry the full feature set so nothing requires a device or the user's own data: a GFF3 with
+genes on all three synthetic references and feature alerts (`toxA`, `resB`, `virD`) written to `regions.json`; all
+four threshold kinds across the targets; an optional taxonomic path through the shipped example k-mer plug-in
+(installed into `~/.nanocas/plugins/` on demand, so the plug-in mechanism itself is exercised); a simulated MinKNOW
+status supplied to the run-health monitor by the simulator (`SimulatedRun.device_status()`, persisted as
+`instrument_status.json` so it survives the end of monitoring); seeded qPCR results; and a per-project
+`demoGuide` rendered as a "What this demo shows" checklist. Target keys are stored in the configuration at index
+build (`queries[].key`) together with the classifier kind, so the UI and statistics no longer re-derive tool-specific
+normalisation. `python demo.py seed` creates one project per subsystem. Verified in the browser: a seeded
+contamination demo logs `breadth`, `region_depth(gene001)`, `depth`, `fraction`, `region_depth(gene002)`; the
+plug-in demo produces named read-count rows with no alignment requests.

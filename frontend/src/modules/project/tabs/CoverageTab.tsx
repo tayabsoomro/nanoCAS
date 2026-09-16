@@ -11,7 +11,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import AlignmentViewer from "../../analysis/analysis-data/alignment-viewer.component";
-import { api, parseTimestamp, queryByReference, THRESHOLD_KINDS } from "../../../api";
+import { api, isTaxonomic, parseTimestamp, queryByReference, THRESHOLD_KINDS } from "../../../api";
 
 ChartJS.register(LinearScale, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -44,30 +44,15 @@ const UNIT_FACTORS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours:
 const SERIES_COLORS = ['#0f4c5c', '#c0392b', '#2e7d4f', '#b7791f', '#6c5b7b', '#355c7d', '#7a4e2d', '#4b6f44'];
 
 const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, coverageData, coverageMap }) => {
-    const [metric, setMetric] = useState<Metric>(['kraken2', 'centrifuge'].includes(projectData?.classifier?.name) ? 'reads' : 'depth');
+    const [metric, setMetric] = useState<Metric>(isTaxonomic(projectData) ? 'reads' : 'depth');
     const [timeUnit, setTimeUnit] = useState<TimeUnit>('minutes');
     const [selectedReference, setSelectedReference] = useState<string | null>(null);
     const [alignmentData, setAlignmentData] = useState<AlignmentData | null>(null);
     const [alignmentError, setAlignmentError] = useState<string | null>(null);
     const [loadingAlignments, setLoadingAlignments] = useState(false);
 
-    const queries = useMemo(() => {
-        const map = queryByReference(projectData);
-        // Taxonomic classifiers key targets by lower-cased taxon name / taxid.
-        const kind = projectData?.classifier?.name;
-        if (kind === 'kraken2' || kind === 'centrifuge') {
-            const tax = new Map<string, any>();
-            (projectData.queries || []).forEach((q: any) => {
-                [...(q.headers || []), ...(q.header ? [q.header] : [])].forEach((h: string) => {
-                    const k = h.trim(); if (!k) return;
-                    tax.set(/^\d+$/.test(k) ? `taxid:${k}` : k.toLowerCase(), q);
-                });
-            });
-            return tax;
-        }
-        return map;
-    }, [projectData]);
-    const taxonomic = ['kraken2', 'centrifuge'].includes(projectData?.classifier?.name);
+    const queries = useMemo(() => queryByReference(projectData), [projectData]);
+    const taxonomic = isTaxonomic(projectData);
 
     // References known from the coverage rows (id -> display name), in
     // first-seen order, with `unmapped` excluded from the chart.
@@ -110,7 +95,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
     useEffect(() => {
         let cancelled = false;
         const fetchAlignments = async () => {
-            if (!selectedReference) return;
+            if (!selectedReference || taxonomic) return;
             setLoadingAlignments(true);
             try {
                 const res = await api.get(`/get_alignments`, { params: { projectId, reference: selectedReference } });
@@ -126,7 +111,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
         };
         fetchAlignments();
         return () => { cancelled = true; };
-    }, [selectedReference, projectId, coverageData.length]);
+    }, [selectedReference, projectId, coverageData.length, taxonomic]);
 
     const chart = useMemo(() => {
         const refs = Array.from(references.keys());

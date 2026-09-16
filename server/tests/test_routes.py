@@ -64,11 +64,12 @@ def test_get_coverage_maps_names_and_skips_bad_rows(client, project):
     pid, pdir = project
     with open(os.path.join(pdir, 'coverage.csv'), 'w') as fh:
         fh.write('timestamp,reference,depth,breadth,read_count\n')
-        fh.write('2026-01-01 00:00:00,chr1,1.5,20.0,3\n')
+        fh.write('2026-01-01 00:00:00,chr1,1.5,20.0,3,30.0\n')
         fh.write('garbage\n')
         fh.write('2026-01-01 00:00:00,unmapped,0,0,7\n')
     rows = client.get(f'/get_coverage?projectId={pid}').json
     assert [r['reference'] for r in rows] == ['chr1', 'unmapped']
+    assert rows[0]['fraction'] == 30.0 and rows[1]['fraction'] is None
     assert rows[0]['name'] == 'E. coli'
     assert rows[1]['name'] == 'unmapped'
     summary = client.get(f'/get_coverage_summary?projectId={pid}').json['references']

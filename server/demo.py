@@ -36,14 +36,22 @@ def _progress(pct, msg):
 
 
 def cmd_seed(args):
+    """One project per subsystem worth showing:
+    contamination (targets, GFF features, breadth/depth/fraction alerts, qPCR),
+    pathogen (low-abundance read-count alert), failing flow cell + stalled
+    (run-health rules), a plug-in classifier project (taxonomic path), and one
+    empty project ready for a live simulation."""
     created = []
     plan = [
-        ('contamination', True), ('flowcell_failure', True), ('clean', True), (args.live_scenario, False),
+        ('contamination', True, 'minimap2'), ('pathogen', True, 'minimap2'),
+        ('flowcell_failure', True, 'minimap2'), ('stalled', True, 'minimap2'),
+        ('contamination', True, 'kmer_demo'), (args.live_scenario, False, 'minimap2'),
     ]
-    for scenario, seeded in plan:
+    for scenario, seeded, classifier in plan:
         print(f'Creating demo project: {simulator.SCENARIOS[scenario]["label"]}'
-              f'{" (completed run)" if seeded else " (ready for a live simulation)"}')
-        cfg = simulator.create_demo_project(scenario=scenario, seed_history=seeded,
+              f'{" (completed run)" if seeded else " (ready for a live simulation)"}'
+              f'{" [plug-in classifier]" if classifier != "minimap2" else ""}')
+        cfg = simulator.create_demo_project(scenario=scenario, seed_history=seeded, classifier=classifier,
                                             history_batches=args.batches, progress=_progress)
         print()
         created.append(cfg)

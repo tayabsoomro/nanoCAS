@@ -34,7 +34,9 @@ const ProjectList: React.FC = () => {
     const [pendingDelete, setPendingDelete] = useState<ProjectMeta | null>(null);
     const [showDemo, setShowDemo] = useState(false);
     const [scenarios, setScenarios] = useState<Scenario[]>([]);
+    const [demoClassifiers, setDemoClassifiers] = useState<{ id: string; label: string }[]>([]);
     const [scenario, setScenario] = useState('contamination');
+    const [demoClassifier, setDemoClassifier] = useState('minimap2');
     const [seedHistory, setSeedHistory] = useState(true);
     const [creating, setCreating] = useState(false);
     const [demoError, setDemoError] = useState<string | null>(null);
@@ -55,7 +57,10 @@ const ProjectList: React.FC = () => {
 
     useEffect(() => {
         fetchProjects();
-        api.get('/simulation/scenarios').then(res => setScenarios(res.data.scenarios || [])).catch(() => { });
+        api.get('/simulation/scenarios').then(res => {
+            setScenarios(res.data.scenarios || []);
+            setDemoClassifiers(res.data.classifiers || []);
+        }).catch(() => { });
     }, [fetchProjects]);
 
     const confirmDelete = async () => {
@@ -74,7 +79,7 @@ const ProjectList: React.FC = () => {
         setCreating(true);
         setDemoError(null);
         try {
-            const res = await api.post('/demo/create', { scenario, seed_history: seedHistory });
+            const res = await api.post('/demo/create', { scenario, seed_history: seedHistory, classifier: demoClassifier });
             setShowDemo(false);
             history.push(`/project/${res.data.projectId}`);
         } catch (err: any) {
@@ -164,14 +169,23 @@ const ProjectList: React.FC = () => {
                 </Modal.Header>
                 <Modal.Body>
                     <p className="nano-hint">
-                        A demo project uses three synthetic reference sequences (sample DNA, a contaminant and a pathogen)
-                        and a simulated sequencer that writes reads exactly like MinKNOW does. No hardware needed.
+                        Three synthetic references (sample DNA, a contaminant, a pathogen), GFF features with their own
+                        alerts, every threshold kind, seeded qPCR results and a simulated sequencer that writes reads and
+                        a sequencing summary exactly like MinKNOW. No hardware, no data of yours.
                     </p>
                     <label className="form-label">Scenario</label>
                     <select className="form-select" value={scenario} onChange={e => setScenario(e.target.value)}>
                         {scenarios.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                     </select>
                     {selected && <p className="nano-hint mt-2">{selected.summary}</p>}
+                    {demoClassifiers.length > 1 && (
+                        <>
+                            <label className="form-label mt-2">Classifier</label>
+                            <select className="form-select" value={demoClassifier} onChange={e => setDemoClassifier(e.target.value)}>
+                                {demoClassifiers.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            </select>
+                        </>
+                    )}
                     <div className="form-check mt-3">
                         <input className="form-check-input" type="checkbox" id="seed-history" checked={seedHistory}
                                onChange={e => setSeedHistory(e.target.checked)} />

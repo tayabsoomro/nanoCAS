@@ -108,7 +108,14 @@ def int_download_database(db_data: dict, nanocas_location: str, queries: list,
                              [classifier.canonical_target(h) for h in headers])
 
         alertinfo_cfg['device'] = db_data.get('device', '')
-        alertinfo_cfg['classifier'] = {'name': classifier_name, 'database': classifier_cfg.get('database')}
+        alertinfo_cfg['classifier'] = {'name': classifier_name, 'database': classifier_cfg.get('database'),
+                                       'kind': classifier.kind, 'label': classifier.label}
+        # Store the canonical key each target is reported under so the UI and
+        # the statistics never have to re-derive tool-specific normalisation.
+        for q in alertinfo_cfg.get('queries', []) or []:
+            head = q.get('header') or ((q.get('headers') or [None])[0])
+            if head:
+                q['key'] = classifier.canonical_target(head)
         alertinfo_cfg.pop('indexError', None)
         try:
             with open(alertinfo_cfg_path, 'w') as f:

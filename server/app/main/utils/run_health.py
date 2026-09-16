@@ -30,6 +30,7 @@ Three cooperating pieces:
 from __future__ import annotations
 
 import bisect
+import json
 import logging
 import os
 import threading
@@ -154,6 +155,7 @@ _END_REASON_COLUMNS = ('end_reason',)
 _CHANNEL_COLUMNS = ('channel',)
 
 _MAX_SERIES_POINTS = 600
+INSTRUMENT_STATUS_FILE = 'instrument_status.json'
 
 
 @dataclass
@@ -763,6 +765,11 @@ class RunHealthMonitor(threading.Thread):
         self._snapshot_lock = threading.Lock()
         self._tick_count = 0
         self._minknow: dict | None = None
+        # Optional callable returning a MinKNOW-like status dict. The
+        # simulator supplies one so demo projects show instrument state
+        # without a real MinKNOW; it is ignored when a device is set.
+        self.status_provider = None
+        self._last_persisted: dict | None = None
 
     # -- lifecycle -----------------------------------------------------
 
@@ -817,6 +824,16 @@ class RunHealthMonitor(threading.Thread):
         if self.device and (self._minknow is None or self._tick_count % 4 == 1):
             from .LinuxNotification import LinuxNotification
             self._minknow = LinuxNotification.get_device_status(self.device)
+        elif not self.device:
+            provider = self.status_provider
+            if provider is None:
+                from .simulator import get_simulation
+                sim = get_simulation(self.project_id)
+                provider = sim.device_status if sim else None
+            try:
+                self._minknow = provider() if provider else None
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f'status provider failed: {exc}')
 
         snapshot = self.build_snapshot(now)
         fired, recovered = self.rules.evaluate(snapshot, now)
@@ -836,8 +853,23 @@ class RunHealthMonitor(threading.Thread):
             emit_alert(record)
         with self._snapshot_lock:
             self._snapshot = snapshot
+        self._persist_instrument(snapshot.get('minknow'))
         self._emit(snapshot)
         return snapshot
+
+    def _persist_instrument(self, status: dict | None) -> None:
+        """Keep the last known instrument status on disk so it can still be
+        shown after monitoring stops (or for a replayed demo run)."""
+        if not status or status == self._last_persisted:
+            return
+        self._last_persisted = status
+        try:
+            path = os.path.join(self.project_dir, INSTRUMENT_STATUS_FILE)
+            with open(path + '.tmp', 'w') as fh:
+                json.dump({'status': status, 'evaluated_at': time.time()}, fh)
+            os.replace(path + '.tmp', path)
+        except OSError as exc:
+            logger.debug(f'Could not persist instrument status: {exc}')
 
     def build_snapshot(self, now: float) -> dict:
         q_threshold = self.config['qScoreThreshold']
@@ -891,6 +923,20 @@ class RunHealthMonitor(threading.Thread):
 
 _STANDALONE_TRACKERS: dict[str, SequencingSummaryTracker] = {}
 _STANDALONE_LOCK = threading.Lock()
+
+
+def last_instrument_status(project_dir: str) -> dict | None:
+    path = os.path.join(project_dir, INSTRUMENT_STATUS_FILE)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        status = data.get('status') or {}
+        status['stale'] = True
+        return status
+    except (OSError, ValueError):
+        return None
 
 
 def standalone_snapshot(summary_path: str, config: dict | None = None) -> dict:

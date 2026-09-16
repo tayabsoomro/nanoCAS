@@ -88,18 +88,30 @@ Everything lives under `~/.nanocas/`:
 
 nanoCAS ships a sequencer simulator so the whole system can be demonstrated on a laptop.
 
-**In the UI:** open http://localhost:3000 and click **Try it without a sequencer**. Pick a scenario and choose
-whether to include a completed 3-hour run. The demo project gets three synthetic references (sample DNA, a
-contaminant and a pathogen) and a minimap2 index. On the project page, **Simulate a run** starts a background
-writer that produces gzipped FASTQ batches and a `sequencing_summary` file exactly the way MinKNOW does (temp file +
-atomic rename, one batch every 5 s, run time advancing 60x faster than wall time) and starts monitoring in the same
-click. Watch the Coverage, Run Health and Alerts tabs react.
+**In the UI:** click **See a demo**, pick a scenario, optionally the example plug-in classifier, and whether to
+include a completed 3-hour run. Every demo project is built to exercise the whole application without a device or
+any data of yours:
+
+- three synthetic references (sample DNA, a contaminant, a pathogen) and a minimap2 index, or the shipped
+  example k-mer plug-in classifier (`server/examples/plugins/kmer_demo_classifier.py`, copied into
+  `~/.nanocas/plugins/`) to show the taxonomic path;
+- targets with every threshold kind (depth, breadth, read count, read fraction);
+- a GFF3 with genes on all three references and feature alerts on `toxA`, `resB` and `virD`;
+- a simulated instrument status (acquisition state, flow cell id, channel count) in the Run Health tab;
+- seeded qPCR results for the Lab results tab and the Across runs page;
+- a "What this demo shows" checklist on the project page linking to each tab.
+
+On the project page, **Simulate a run** starts a background writer that produces gzipped FASTQ batches and a
+`sequencing_summary` file exactly the way MinKNOW does (temp file + atomic rename, one batch every 5 s, run time
+advancing 60x faster than wall time) and starts monitoring in the same click. Watch the Coverage, Run Health and
+Alerts tabs react. `python demo.py seed` creates one project per subsystem (contamination, pathogen, failing flow
+cell, stalled run, plug-in classifier, and an empty one ready for a live simulation).
 
 | Scenario | What happens | Alerts you should see |
 |---|---|---|
 | Clean run | Only sample DNA, stable quality and pores | none |
-| Contamination detected | Foreign DNA ramps to ~20 % of reads after a few batches | `breadth`, then `depth` on Contaminant X (about 1–2 min) |
-| Pathogen at low abundance | A pathogen at ~3 % of reads | `depth` on Pathogen Y once enough reads accumulate |
+| Contamination detected | Foreign DNA ramps to ~20 % of reads after a few batches | `breadth`, `fraction`, then `depth` on Contaminant X, plus feature alerts `toxA` and `resB` (about 1–2 min) |
+| Pathogen at low abundance | A pathogen at ~3 % of reads | `reads`, then `depth` on Pathogen Y and feature alert `virD` once enough reads accumulate |
 | Failing flow cell | Active channels decay 440 → 20, quality drops Q13 → Q6 | `pore_decline`, `low_median_q`, `low_pass_rate`, `low_active_channels` |
 | Run stalls | A few batches, then nothing | `data_stalled` after 1 min |
 | Run never starts | Nothing is written | `run_not_started` after 1 min |

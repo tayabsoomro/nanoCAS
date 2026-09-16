@@ -142,13 +142,30 @@ export function canonicalRefId(header: string | undefined | null): string {
 export function queryByReference(projectData: any): Map<string, any> {
     const map = new Map<string, any>();
     (projectData?.queries || []).forEach((q: any) => {
+        // `key` is the canonical id the classifier reports the target under
+        // (written at index-build time); older projects fall back to the
+        // first header token.
+        if (q.key) map.set(q.key, q);
         const headers: string[] = [...(q.headers || []), ...(q.header ? [q.header] : [])];
         headers.forEach(h => {
             const id = canonicalRefId(h);
-            if (id) map.set(id, q);
+            if (id && !map.has(id)) map.set(id, q);
         });
     });
     return map;
+}
+
+export function isTaxonomic(projectData: any): boolean {
+    const c = projectData?.classifier;
+    return c?.kind === 'taxonomic' || c?.name === 'kraken2' || c?.name === 'centrifuge';
+}
+
+/** Canonical key for a query's primary target. */
+export function queryKey(q: any, projectData: any): string {
+    if (q?.key) return q.key;
+    const h = (q?.header || (q?.headers || [])[0] || '').trim();
+    if (isTaxonomic(projectData)) return /^\d+$/.test(h) ? `taxid:${h}` : h.toLowerCase();
+    return canonicalRefId(h);
 }
 
 
