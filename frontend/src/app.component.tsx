@@ -5,10 +5,10 @@ import Footer from './components/Footer';
 import ProjectList from './modules/project/ProjectList';
 import ProjectDetail from './modules/project/ProjectDetail';
 import SetupComponent from './modules/setup/setup.component';
+import CohortPage from './modules/cohort/CohortPage';
+import { API_ENDPOINT } from './api';
 import './styles/theme.css';
 import './app.component.css';
-
-const API_ENDPOINT = process.env.REACT_APP_API_ENDPOINT ?? '';
 
 export const io = require('socket.io-client');
 const socketUrl = API_ENDPOINT || window.location.origin;
@@ -41,6 +41,7 @@ const AppComponent = () => {
                     <Switch>
                         <Route exact path="/" component={ProjectList} />
                         <Route path="/setup" component={SetupComponent} />
+                        <Route path="/summary" component={CohortPage} />
                         <Route path="/project/:id/:tab?" component={ProjectDetail} />
                     </Switch>
                 </main>

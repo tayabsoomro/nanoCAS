@@ -43,7 +43,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd server && python3 nanocas.py"
+args = "cd server && BACKEND_PORT=8000 python3 nanocas.py"
 waitForPort = 8000
 
 [[ports]]
@@ -56,4 +56,4 @@ externalPort = 8000
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "cd frontend && npm run build && cd ../server && gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:8000 nanocas:app"]
+run = ["bash", "-c", "cd frontend && npm run build && cd ../server && gunicorn --worker-class gthread --threads 16 -w 1 --bind 0.0.0.0:8000 nanocas:app"]

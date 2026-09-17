@@ -607,3 +607,243 @@ Total backend Python: ~1800 lines. Total frontend TS/TSX: ~2400 lines. This is a
 - `mypy --strict server/` — would have caught the `Lock`-vs-`RLock` issue if `_save_sent_alerts` was annotated `# requires lock held`.
 - `pytest server/tests/` — even a single test of "two consecutive alerts don't deadlock" would have caught §3 immediately.
 - `npm run build` in `frontend/` — the React Router v5 deprecations are real and the TypeScript looser config (`tsconfig.json` does not have `"strict": true`) is hiding bugs.
+
+---
+
+# Part 6 — QA pass and alerting-system build-out (2026-09-15)
+
+> Second full read of every file under `server/`, `frontend/src/` and the repository root, after the fixes from
+> Parts 3–5 had landed (PRs #3–#12). This section records what was still broken, what was changed, and how each
+> change is covered by tests. Everything below is on branch `claude/nanopore-alerting-system-8xym15`.
+
+## 6.1 Bugs found and fixed
+
+| # | Severity | Where | Problem | Fix | Test |
+|---|---|---|---|---|---|
+| 1 | **Critical (data loss)** | `routes.get_uid` + `events.download_database` | `get_uid` returned the *existing* project id when the same sequencer directory had been used before; project creation then `rmtree`'d that directory, so creating a second analysis on the same run destroyed the first. | Every project gets a fresh UUID; the same directory may be watched by several projects. | `test_routes::test_get_uid_is_unique_per_call` |
+| 2 | **Critical (security)** | `routes.delete_analyses` | `uid` from the form was joined into `rm -rf ~/.nanocas/<uid>` without validation; `uid=..` would have removed the user's home directory. | All ids go through `project_store.is_valid_project_id` / `project_dir` (strict pattern + realpath check); `shutil.rmtree` only on the validated path. | `test_project_store::test_delete_project_refuses_traversal`, `test_routes::test_delete_analyses_rejects_traversal` |
+| 3 | **Critical (secret leak)** | `server/app/email_config.json`, `server/server.tar.gz` | A Gmail password was committed (also inside the tarball). | Files removed. **The password must be rotated**; git history still contains it. | — |
+| 4 | High (correctness of results) | `coverage_accumulator.update_from_bam` | `pysam.count_coverage` defaults to `quality_threshold=15`, silently discarding every base with Phred < 15. For nanopore reads that is a large share of bases, so reported depth was far below `samtools depth`. Read counts also included secondary/supplementary alignments (minimap2 emits up to 5 secondaries per read). | `quality_threshold=0`; read counts use primary alignments only; unmapped count via index stats with a scan fallback. | `test_filehandler_pipeline::test_coverage_counts_low_quality_bases_and_primary_reads_only`, e2e |
+| 5 | High | `FileHandler._handle_path` / `process_existing_files` | A batch whose alignment failed (minimap2 error, missing index, invalid BAM) was still appended to `processed_files.txt`, i.e. silently lost forever. Start-up catch-up bypassed the in-progress claim, so a file could be processed twice if the watchdog fired for it concurrently. | `process_*` return a boolean; failures go to `failed_files.json` (retried on restart, surfaced in the UI, one alert per 1/5/20/50 failures); catch-up goes through the same claim path. | `test_failed_batch_not_marked_processed`, `test_successful_batch_recorded_once` |
+| 6 | High | `FileHandler.process_fastq_file` | Alignment ran as an unquoted `shell=True` string: any path with a space (common on macOS) broke, and `-t`/`-@` were never set. | `Popen` pipeline `minimap2 -a -x map-ont -t N … | samtools sort -@ …`, stderr captured per tool, `FileNotFoundError` raises a once-per-run `tool_missing` alert. | e2e test |
+| 7 | High | `app/__init__.py` (eventlet) | Native threads (watchdog, build thread, notifications) called `socketio.emit`/`start_background_task` from outside the eventlet hub; messages were intermittently lost, which is why every UI element had grown a polling fallback. | `SocketIO(async_mode='threading')` + `simple-websocket`; emits are thread-safe; blocking subprocesses can no longer stall a single event loop. `eventlet` dropped from requirements; gunicorn uses `gthread`. | e2e test exercises the whole path |
+| 8 | High | `routes.remove_analysis` / `delete_analyses` | Deleting a project used substring matching on the cache (`if uid not in line`) and never stopped a running observer, which kept writing into a deleted directory. | Column-exact cache handling with a lock; listeners are stopped before deletion. | `test_cache_round_trip_and_exact_match_removal` |
+| 9 | Medium | `routes.get_coverage` + `CoverageTab` | Names were mapped only via the legacy `header` key; the chart filtered `'Unmapped'` but the backend writes `unmapped`, so an all-zero "unmapped" series was drawn; `new Date("YYYY-MM-DD HH:MM:SS")` is invalid in Safari/Firefox; the reference dropdown sent the display *name* to `/get_alignments`, which needs the reference id. | Rows carry `reference` (id) and `name`; chart keyed by id, labelled by name; ISO-normalised timestamps; threshold line follows the selected reference; current-coverage table added. | `test_get_coverage_maps_names_and_skips_bad_rows` |
+| 10 | Medium | `email.py` | Always issued STARTTLS, which fails on port 465 (implicit TLS); string ports from the form were passed through. | SMTP_SSL on 465, STARTTLS elsewhere when offered, `int(port)`; returns `(ok, error)` so the UI can show per-channel results. | `test_notifier_reports_per_channel_errors` |
+| 11 | Medium | `routes.index_devices` | A GET sent a "device discovered" message to every MinKNOW position on each wizard load. | Read-only. | `test_index_devices_returns_list` |
+| 12 | Medium | `directory_scanner.parse_summary_combined` | Parsed only the first 50 000 rows of `sequencing_summary.txt`, so after the first hour every run-health statistic was frozen; assumed 512 channels. | Replaced by `run_health.SequencingSummaryTracker` (incremental tail, histograms, per-minute buckets, rolling window, flow-cell inference). | `test_run_health` (tracker tests) |
+| 13 | Medium | `frontend/public/index.html` | Loaded Bootstrap 4 CSS + JS *and* Bootstrap 5 CSS, plus jQuery/popper/canvasjs. react-bootstrap 2.x targets Bootstrap 5 only. | Bootstrap 5 CSS only. | build |
+| 14 | Medium | `frontend/package.json` | `typescript ^4.3.2` could not parse the installed `@types` packages (`tsc` failed); CRA `proxy` pointed at :8000 while the backend default is :5007; `CI=true npm run build` failed on lint errors. | TS 4.9.5, proxy :5007, lint clean; CI runs `tsc` + build. | CI |
+| 15 | Medium | Setup wizard | Going back a step discarded everything entered; the device picker component existed but was never mounted; breadth alerts were impossible to configure although the backend supported them; the summary page never listened for build progress/errors and showed the depth threshold as `%`. | Wizard state lifted to the parent; device picker mounted; depth + breadth thresholds with validation; live progress bar, error messages and a project link. | build |
+| 16 | Low | `events.log`, `routes.get_analysis_info` | `json.load(open(...))` leaked a descriptor; malformed cache rows raised `IndexError`; SMTP password was returned to the browser. | Safe parsing; password redacted (`passwordSet: true`). | `test_get_analysis_info_redacts_password` |
+| 17 | Low | Repository | Dead Celery/Redis configuration (`docker-compose.yml` referenced a non-existent `server/Dockerfile` and Celery services; `nanocas.yml`, `server/env.yml`, `start_nanocas.sh`), a root `package.json` with a lone dependency, a broken Node 8/10/12 CI workflow, `main.py` "Hello from repl-nix-workspace", `setup.py` that pip would try to execute as a packaging script. | Removed / rewritten; `setup.py` renamed `install.py`; working `server/Dockerfile`, `frontend/Dockerfile` + nginx, compose without Celery; GitHub Actions running pytest (3.10, 3.12) and the frontend build. | CI |
+
+## 6.2 New capability: run-health alerting
+
+`server/app/main/utils/run_health.py` adds the instrument-level monitoring the project was missing:
+
+- **`SequencingSummaryTracker`** tails `sequencing_summary.{txt,csv}` incrementally (only bytes appended since the
+  last poll are read; partial trailing lines are held back; a shrinking file resets the tracker). It keeps
+  histograms (Q by integer bin, read length by fixed edges), per-minute buckets (reads, bases, pass count, 0.5-Q
+  histogram for medians), a rolling window of the last *N* reads, per-channel last-seen time, and end-reason
+  counts. Memory is flat for the life of a run.
+- **`RunHealthRules`** evaluates seven rules with hysteresis (`consecutiveChecks` before firing, immediate
+  recovery, re-arm after recovery): `run_not_started`, `data_stalled`, `low_median_q`, `pore_decline`,
+  `low_active_channels`, `low_pass_rate`, `short_reads`. MinKNOW's live acquisition status (when a device is
+  selected) suppresses the run-start alarm while the instrument reports `PROCESSING`.
+- **`RunHealthMonitor`** is a daemon thread per monitored project (started/stopped with the file listener). It
+  locates the newest summary (bounded-depth search of the watched dir, its parent and the project dir), tails it,
+  scans the watched directory and MinKNOW sub-directories for the newest data file, polls MinKNOW every ~2 min,
+  evaluates the rules, logs alerts, notifies, and emits `run_health_update`.
+- Defaults and per-project overrides live in `runHealthConfig` (wizard step 2; `GET /run_health_defaults`).
+
+## 6.3 New capability: alert log + notifier
+
+`alerts.py` centralises everything alert-related: `AlertLog` (append-only `alerts.jsonl`, newest-first reads,
+corruption-tolerant), `Notifier` (per-channel dispatch on a background thread with per-channel status; desktop,
+MinKNOW, e-mail, SMS), `safe_emit` (thread-safe Socket.IO emit that is a no-op without a server). Coverage alerts,
+run-health alerts, batch failures, missing tools/index and monitoring start/stop all go through it. New endpoints:
+`GET /get_alerts`, `POST /test_notification`; new socket event `alert_fired`.
+
+## 6.4 Frontend
+
+- `api.ts`: one axios client, shared types, run-health field metadata, timestamp/number formatting.
+- Project list: names, creation time, monitoring badge, confirm-before-delete.
+- Project page: alert banner + toasts from `alert_fired`, unseen-alert counter on the tab, listener error display,
+  failed-file count, index-not-ready notice.
+- Coverage tab: current-coverage table with threshold highlighting, chart with per-reference threshold line and
+  carried-forward values, alignment viewer using reference ids (truncation notice for large read sets).
+- Run Health tab: new snapshot schema (histograms, throughput, window stats, rule status, inputs/instrument panel).
+- Alerts tab: filterable history, coverage thresholds, run-health rule status + configuration, notification
+  channels with a test button.
+- Wizard: project name, device picker, breadth thresholds, FASTA record picker with descriptions and lengths,
+  run-health configuration, test notification, live build progress.
+
+## 6.5 Verification
+
+- `pytest server/tests`: 88 tests. Unit tests for the project store, alert log/notifier, tracker, rules engine,
+  monitor tick, FileHandler bookkeeping and coverage maths; Flask test-client tests for every route; an
+  end-to-end test that builds a real minimap2 index, starts the live watchdog listener, drops FASTQ batches
+  (plain and gzipped, atomic rename) into the watched directory and checks coverage, once-per-run alerts, the
+  lazy merged BAM and restart idempotency. The e2e tests skip when the aligners are absent.
+- `npx tsc --noEmit` and `CI=true npm run build` pass (lint warnings are errors in CI).
+
+## 6.6 Known limitations / follow-ups
+
+- Depth arrays are dense `uint32` per reference; multi-gigabase references would need a sparse representation.
+- `pore_decline` / `low_active_channels` approximate pore state from channels that produced reads; MinKNOW's
+  channel-state stream would give the true mux/pore classification. `get_device_status` already fetches the
+  acquisition state and flow-cell info, so extending it is straightforward.
+- Twilio credentials are server-wide (`.env`); per-project credentials were deliberately not added.
+- POD5/FAST5 inputs are detected for run-start purposes only; basecalling is out of scope.
+- `install.py` / `setup.sh` remain as convenience installers and are not covered by tests.
+- The committed Gmail password (item 3) must be rotated by the maintainers.
+
+
+---
+
+# Part 7 — Simulation mode and UI simplification (2026-09-16)
+
+## 7.1 Sequencer simulator (`server/app/main/utils/simulator.py`)
+
+- **Synthetic reference set**: `Host_control` (60 kb), `Contaminant_X` (30 kb), `Pathogen_Y` (20 kb), generated
+  deterministically (seed 42) and written as `demo_reference.fasta` in the project.
+- **Reads**: sampled from the references with 4 % substitutions and 1 % indels, random strand, log-normal
+  lengths (median ~2 kb); "junk" reads are random sequence and end up unmapped. Per-read Q-scores are drawn from
+  a scenario-driven mean; quality strings are constant at that Q.
+- **Output**: gzipped FASTQ batches written to a temp name and atomically renamed into the watched directory
+  (the pattern MinKNOW uses), plus a `sequencing_summary_<runid>.txt` with the columns the run-health tracker
+  reads (`channel`, `start_time`, `passes_filtering`, `sequence_length_template`, `mean_qscore_template`,
+  `end_reason`). Run time advances `time_scale` (60x) faster than wall time so the per-minute series evolves.
+- **Scenarios** (`SCENARIOS`): clean, contamination (ramp to 20 %), pathogen (3 %), flowcell_failure (active
+  channels 440 → 20 and Q 13 → 6 over the run, batch size shrinking), stalled (stops after ~1/6 of the batches),
+  not_started (writes nothing). Each declares the alert ids it is expected to trigger; the UI shows them.
+- **Live simulation**: `start_simulation()` clears previous simulated inputs and derived state, starts a daemon
+  writer thread, and (via `/simulation/start`) starts monitoring. Status is pushed as `simulation_update`.
+- **Replayed history**: `replay_run()` generates a whole run with `interval_sec=0`, sets each batch's mtime to a
+  synthetic wall clock (5 min apart), pushes it through the real `FileHandler`, and calls
+  `RunHealthMonitor.tick(now=…)` after every batch. `AlertLog.clock` / `FileHandler.clock` let the alert and
+  coverage timestamps follow that clock, so a seeded project looks exactly like a run that finished just now.
+- **Demo projects**: `create_demo_project()` builds the index synchronously (100 kb → < 1 s) and stores
+  `demo: true`, `demoScenario`, and fast run-health settings (1-minute timeouts, 5-second checks).
+- **CLI** `server/demo.py`: `seed`, `list`, `simulate`, `reset`.
+- **Safety**: `reset_project_run` only removes simulator-named files and only inside a directory under the nanoCAS
+  workspace (or containing "nanocas"); a real MinKNOW directory is never cleared.
+
+Bug found while writing this: both thread subclasses used `self._stop = threading.Event()`, which shadows
+`threading.Thread._stop()` and makes `is_alive()`/`join()` raise `TypeError` once the thread has finished. The
+run-health monitor had the same latent bug (masked by `join=False` in `stop_listener`). Renamed to `_stop_event`.
+
+## 7.2 UI
+
+- Neutral theme: system font stack, one accent (`#0f4c5c`), grey scale, three status colours; no gradients,
+  glows or icon fonts (the FontAwesome kit script and the duplicate Bootstrap 4 assets are gone). Bootstrap 5 is
+  bundled from npm instead of a CDN and the coverage-over-time chart moved from Google Charts (which loads its
+  code from gstatic.com at runtime and therefore fails on an offline instrument laptop) to the already-bundled
+  Chart.js. The built UI now makes no external requests at all.
+- Alignment viewer: a per-bin depth track over the reference plus a bounded pile-up (25 rows, "show more"),
+  replacing the unbounded read stacking that produced multi-thousand-pixel pages on real runs.
+- The backend serves `frontend/build` itself when present (SPA fallback), so a deployment can be a single port.
+- Projects page opens with a three-line statement of what nanoCAS does, a Watch → Align → Alert strip, and two
+  actions: **New project** and **Try it without a sequencer** (scenario picker, optional completed run).
+- Project page: **Simulate a run** dropdown (scenarios), **Stop simulation**, **Reset run data** for demo projects,
+  and a status line with batches / reads / run time / expected alerts.
+- Header shows backend reachability and missing tools; footer reduced to one line.
+- Wizard: three panels ("sequences & run", "alerts", "review") with short one-line explanations; Back/Continue
+  actions; device picker inline.
+
+## 7.3 Verification
+
+- `pytest server/tests`: simulator scripts, batch writing, scenario endpoint, demo creation with replayed
+  history (coverage rows per batch, chronological alert log, run-health snapshot), live simulation through the
+  HTTP API including start-while-running rejection and reset.
+- Built UI screenshots taken against a live backend with a seeded demo project (see PR).
+
+
+---
+
+# Part 8 — Classifier plug-ins, GFF feature alerts, laboratory results (2026-09-16)
+
+## 8.1 Positioning
+
+`docs/LANDSCAPE.md` catalogues MinKNOW live alignment, the EPI2ME workflows, RAMPART/VisPan, minoTour, NanoOK RT,
+MARTi, MMonitor, Nanometa Live, the adaptive-sampling engines and the cloud platforms (CZ ID, BugSeq), with sources.
+The differentiation nanoCAS claims: it is the decision layer (thresholds + notifications + instrument-health rules +
+laboratory-result linkage) on top of any classifier, deployable offline in one process.
+
+## 8.2 Classifier abstraction (`utils/classifiers/`)
+
+- `Classifier` contract: `build_index(references, headers, output_dir, progress) -> path`,
+  `classify(input, index, workdir, threads) -> BatchResult`; `kind` is `alignment` (returns a BAM, feeds the
+  coverage accumulator and GFF region alerts) or `taxonomic` (returns per-target clade read counts, feeds
+  `TaxaCounter`). `canonical_target()` lets each tool normalise target keys (minimap2: first header token;
+  Kraken2/Centrifuge: lower-cased name or `taxid:N`).
+- Built-ins: `Minimap2Classifier` (moved out of `tasks.py`/`FileHandler`), `Kraken2Classifier` (validates the
+  DB directory, runs `kraken2 --report`, parses clade counts), `CentrifugeClassifier` (validates the `.1.cf`
+  prefix, parses `--report-file`).
+- Registry + plug-ins: `~/.nanocas/plugins/*.py` (or `NANOCAS_PLUGIN_DIR`) are imported at first use; every
+  concrete `Classifier` subclass is registered by `name`. Broken files are skipped and logged; a plug-in cannot
+  shadow a built-in. `GET /classifiers` reports availability (executables on PATH) for the wizard.
+- Pipeline: `tasks.int_download_database` delegates to the classifier and writes `database/index.json`
+  (classifier, index path, targets); `FileHandler` reads the manifest, runs `classify()` per batch and takes the
+  BAM or read-count path. Thresholds generalised to four kinds (depth, breadth, reads, fraction) for every
+  classifier; `coverage.csv` gained a `fraction` column (old 5-column files still parse).
+- Tests: report parsers, fake `kraken2`/`centrifuge` executables on PATH, plug-in discovery (good, broken and
+  name-clashing files), and a full taxonomic pipeline run producing read-count and fraction alerts.
+
+## 8.3 GFF feature alerts
+
+`utils/gff.py` parses GFF3 (ID/Name/locus_tag/product attributes, `##FASTA` section ignored, 20 000-feature cap).
+`POST /parse_gff` feeds a picker in the wizard (filter by type, search, select shown, per-feature depth
+threshold); the selection is written to `regions.json` at project creation and editable later through
+`GET /get_regions` / `POST /update_regions` from the Alerts tab. `FileHandler` re-reads `regions.json` when its
+mtime changes, so edits apply to the next batch without restarting. Previously nothing ever wrote `regions.json`,
+so region alerts were unreachable from the UI.
+
+## 8.4 Laboratory results and statistics
+
+`utils/lab_results.py` stores qPCR results per project (`lab_results.json`), derives per-target nanopore metrics
+from `coverage.csv` (latest reads / fraction / depth / breadth, `detected` = any configured threshold reached,
+time to detection from the first batch) and computes:
+
+- per project: concordance with the laboratory call, log10(RPM) vs Ct OLS with Pearson r and t-test p, Spearman ρ;
+- across projects (`GET /cohort`): positivity with Wilson 95 % CI, sensitivity/specificity/kappa against qPCR,
+  median time to detection, pooled regression and a Ct limit of detection (Ct at which the fit predicts 3 reads in a
+  median-sized run; P(≥1 read | Poisson(3)) = 95 %).
+
+`utils/stats.py` is dependency-free (regularised incomplete beta for the t distribution) and unit-tested against
+known values. Demo projects with replayed history get plausible seeded qPCR results so the pages demonstrate.
+
+## 8.5 UI
+
+Front page reduced to one sentence and two actions (New project / See a demo); the three-step explanation only
+appears in the empty state. Wizard panel "What to watch for" now holds the classifier choice, database path for
+taxonomic tools, taxon entry, four threshold kinds and the GFF feature picker. New **Lab results** tab and
+**Across runs** page; Alerts tab shows target thresholds and an editable feature-alert table; Coverage tab handles
+reads/fraction metrics and hides alignment views for taxonomic projects.
+
+## 8.6 Demo coverage of every subsystem
+
+Demo projects now carry the full feature set so nothing requires a device or the user's own data: a GFF3 with
+genes on all three synthetic references and feature alerts (`toxA`, `resB`, `virD`) written to `regions.json`; all
+four threshold kinds across the targets; an optional taxonomic path through the shipped example k-mer plug-in
+(installed into `~/.nanocas/plugins/` on demand, so the plug-in mechanism itself is exercised); a simulated MinKNOW
+status supplied to the run-health monitor by the simulator (`SimulatedRun.device_status()`, persisted as
+`instrument_status.json` so it survives the end of monitoring); seeded qPCR results; and a per-project
+`demoGuide` rendered as a "What this demo shows" checklist. Target keys are stored in the configuration at index
+build (`queries[].key`) together with the classifier kind, so the UI and statistics no longer re-derive tool-specific
+normalisation. `python demo.py seed` creates one project per subsystem. Verified in the browser: a seeded
+contamination demo logs `breadth`, `region_depth(gene001)`, `depth`, `fraction`, `region_depth(gene002)`; the
+plug-in demo produces named read-count rows with no alignment requests.
+
+## 8.7 Long reference names
+
+Real accession-style names (`CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC`) pushed the coverage table past its
+panel and wrapped the "Alert when" column one word per line. A `TruncatedText` component (`components/`) now
+renders names on one line with an ellipsis and shows the full text in a tooltip on hover or keyboard focus, but
+only when the text is actually clipped (measured with a `ResizeObserver`), so short names carry no tooltip. It is
+used for target names and reference IDs in the coverage, alerts and lab-results tables, the reference dropdowns
+and the "Read Alignments" heading; numeric cells no longer wrap; the reference-ID cell reads "same as target"
+when the two are identical; chart legend labels are shortened in the middle while the chart tooltip keeps the
+full name; and panel bodies scroll horizontally on narrow screens instead of clipping. Coverage alert messages no
+longer repeat the ID when it equals the display name.
