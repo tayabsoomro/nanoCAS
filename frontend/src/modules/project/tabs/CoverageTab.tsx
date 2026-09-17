@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Dropdown } from "react-bootstrap";
+import TruncatedText from "../../../components/TruncatedText";
 import {
     Chart as ChartJS,
     LinearScale,
@@ -40,6 +41,15 @@ const METRIC_AXIS: Record<Metric, string> = { depth: 'Depth (x)', breadth: 'Brea
 const METRIC_UNIT: Record<Metric, string> = { depth: 'x', breadth: '%', reads: '', fraction: '%' };
 
 const UNIT_LABELS: Record<TimeUnit, string> = { seconds: 's', minutes: 'min', hours: 'h', days: 'd' };
+const LEGEND_MAX_CHARS = 36;
+/** Shorten a legend label so a handful of long reference names still fit on one or two legend rows. */
+export function shortenLabel(label: string, max = LEGEND_MAX_CHARS): string {
+    if (label.length <= max) return label;
+    const head = Math.ceil((max - 1) * 0.6);
+    const tail = max - 1 - head;
+    return `${label.slice(0, head)}…${label.slice(label.length - tail)}`;
+}
+
 const UNIT_FACTORS: Record<TimeUnit, number> = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
 const SERIES_COLORS = ['#0f4c5c', '#c0392b', '#2e7d4f', '#b7791f', '#6c5b7b', '#355c7d', '#7a4e2d', '#4b6f44'];
 
@@ -160,7 +170,15 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
             animation: false,
             interaction: { mode: 'nearest', intersect: false },
             plugins: {
-                legend: { position: 'bottom', labels: { boxWidth: 12, usePointStyle: true } },
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 12,
+                        usePointStyle: true,
+                        generateLabels: (c: any) => ChartJS.defaults.plugins.legend.labels.generateLabels(c)
+                            .map((l: any) => ({ ...l, text: shortenLabel(l.text) })),
+                    },
+                },
                 tooltip: {
                     callbacks: {
                         title: (items: any[]) => `${items[0]?.parsed.x.toFixed(2)} ${UNIT_LABELS[timeUnit]}`,
@@ -222,13 +240,17 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                                     const rules = q ? THRESHOLD_KINDS.filter(k => q[k.flag]).map(k => `${k.label.toLowerCase()} ≥ ${q[k.key]}${k.unit === 'reads' ? '' : k.unit === '% of reads' ? '%' : k.unit}`) : [];
                                     return (
                                         <tr key={row.reference}>
-                                            <td>{isUnmapped ? <em>{taxonomic ? 'Unclassified reads' : 'Unmapped reads'}</em> : row.name}</td>
-                                            <td><code>{isUnmapped ? '—' : row.reference}</code></td>
-                                            {!taxonomic && <td className={hit('depth') ? 'nano-threshold-hit' : ''}>{isUnmapped ? '—' : `${row.depth.toFixed(2)}x`}</td>}
-                                            {!taxonomic && <td className={hit('breadth') ? 'nano-threshold-hit' : ''}>{isUnmapped ? '—' : `${row.breadth.toFixed(2)}%`}</td>}
-                                            <td className={hit('reads') ? 'nano-threshold-hit' : ''}>{row.read_count.toLocaleString()}</td>
-                                            <td className={hit('fraction') ? 'nano-threshold-hit' : ''}>{row.fraction != null ? `${row.fraction.toFixed(2)}%` : '—'}</td>
-                                            <td>{rules.length ? rules.join(', ') : <span className="text-muted">{isUnmapped ? '' : 'no alert'}</span>}</td>
+                                            <td className="nano-cell-name">{isUnmapped ? <em>{taxonomic ? 'Unclassified reads' : 'Unmapped reads'}</em> : <TruncatedText text={row.name} />}</td>
+                                            <td className="nano-cell-id">
+                                                {isUnmapped ? '—'
+                                                    : row.reference === row.name ? <span className="text-muted">same as target</span>
+                                                    : <TruncatedText text={row.reference} mono />}
+                                            </td>
+                                            {!taxonomic && <td className={`nano-cell-num${hit('depth') ? ' nano-threshold-hit' : ''}`}>{isUnmapped ? '—' : `${row.depth.toFixed(2)}x`}</td>}
+                                            {!taxonomic && <td className={`nano-cell-num${hit('breadth') ? ' nano-threshold-hit' : ''}`}>{isUnmapped ? '—' : `${row.breadth.toFixed(2)}%`}</td>}
+                                            <td className={`nano-cell-num${hit('reads') ? ' nano-threshold-hit' : ''}`}>{row.read_count.toLocaleString()}</td>
+                                            <td className={`nano-cell-num${hit('fraction') ? ' nano-threshold-hit' : ''}`}>{row.fraction != null ? `${row.fraction.toFixed(2)}%` : '—'}</td>
+                                            <td className="nano-cell-rules">{rules.length ? rules.join(', ') : <span className="text-muted">{isUnmapped ? '' : 'no alert'}</span>}</td>
                                             <td className="nano-alert-time">{row.timestamp}</td>
                                         </tr>
                                     );
@@ -267,11 +289,11 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                         </Dropdown>
                         <Dropdown>
                             <Dropdown.Toggle variant="secondary" size="sm">
-                                {selectedName ? `Threshold: ${selectedName}` : 'Select reference'}
+                                {selectedName ? <>Threshold: <TruncatedText text={selectedName} /></> : 'Select reference'}
                             </Dropdown.Toggle>
                             <Dropdown.Menu>
                                 {Array.from(references.entries()).map(([ref, name]) => (
-                                    <Dropdown.Item key={ref} onClick={() => setSelectedReference(ref)}>{name}</Dropdown.Item>
+                                    <Dropdown.Item key={ref} onClick={() => setSelectedReference(ref)}><TruncatedText text={name} /></Dropdown.Item>
                                 ))}
                             </Dropdown.Menu>
                         </Dropdown>
@@ -290,7 +312,7 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
                     )}
                     {selectedReference && threshold === null && (
                         <p className="nano-hint" style={{ marginTop: 8 }}>
-                            No {metric} alert threshold is configured for {selectedName}; no threshold line is drawn.
+                            No {metric} alert threshold is configured for <TruncatedText text={selectedName!} />; no threshold line is drawn.
                         </p>
                     )}
                 </div>
@@ -298,15 +320,16 @@ const CoverageTab: React.FC<CoverageTabProps> = ({ projectId, projectData, cover
 
             {!taxonomic && <div className="nano-panel">
                 <div className="nano-panel-header">
-                    <h3>Read Alignments{selectedName ? `: ${selectedName}` : ''}</h3>
+                    <h3>Read Alignments{selectedName ? <>: <TruncatedText text={selectedName} /></> : ''}</h3>
                     <Dropdown>
                         <Dropdown.Toggle variant="secondary" size="sm">
-                            {selectedName || "Select reference"}
+                            {selectedName ? <TruncatedText text={selectedName} /> : 'Select reference'}
                         </Dropdown.Toggle>
                         <Dropdown.Menu>
                             {Array.from(references.entries()).map(([ref, name]) => (
                                 <Dropdown.Item key={ref} onClick={() => setSelectedReference(ref)}>
-                                    {name} {name !== ref && <span className="text-muted">({ref})</span>}
+                                    <TruncatedText text={name} />
+                                    {name !== ref && <div className="nano-hint"><TruncatedText text={ref} mono /></div>}
                                 </Dropdown.Item>
                             ))}
                         </Dropdown.Menu>

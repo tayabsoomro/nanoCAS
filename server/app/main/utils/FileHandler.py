@@ -636,7 +636,8 @@ class FileHandler(FileSystemEventHandler):
             if self._check_if_alert_sent(alert_key):
                 continue
             fmt = f"{value:.0f}" if kind == 'reads' else f"{value:.2f}"
-            message = f"{display} ({ref}) reached {fmt}{unit} {label} (threshold {threshold:g}{unit})"
+            who = display if display == ref else f"{display} ({ref})"
+            message = f"{who} reached {fmt}{unit} {label} (threshold {threshold:g}{unit})"
             self._raise_alert(kind, SEVERITY_CRITICAL, message, details={
                 'reference': ref, 'name': display, 'value': value, 'threshold': threshold,
                 'depth': depth_coverage, 'breadth': breadth_coverage, 'reads': read_count, 'fraction': fraction,

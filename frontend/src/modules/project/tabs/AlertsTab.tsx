@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useHistory } from "react-router-dom";
 import { Modal, Button } from "react-bootstrap";
+import TruncatedText from "../../../components/TruncatedText";
 import { socket } from "../../../app.component";
 import { api, AlertRecord, Region, RuleStatus, RUN_HEALTH_FIELDS, describeThresholds, severityBadgeClass } from "../../../api";
 
@@ -201,9 +202,9 @@ const AlertsTab: React.FC<AlertsTabProps> = ({ projectId, projectData, monitorin
                             <tbody>
                                 {queries.map((q: any, idx: number) => (
                                     <tr key={idx}>
-                                        <td>{q.name}</td>
-                                        <td><code>{[...(q.headers || []), ...(q.header && !(q.headers || []).includes(q.header) ? [q.header] : [])].join(', ')}</code></td>
-                                        <td>{describeThresholds(q).join(', ') || <span className="text-muted">no alert</span>}</td>
+                                        <td className="nano-cell-name"><TruncatedText text={q.name} /></td>
+                                        <td className="nano-cell-id"><TruncatedText text={[...(q.headers || []), ...(q.header && !(q.headers || []).includes(q.header) ? [q.header] : [])].join(', ')} mono /></td>
+                                        <td className="nano-cell-rules">{describeThresholds(q).join(', ') || <span className="text-muted">no alert</span>}</td>
                                     </tr>
                                 ))}
                             </tbody>

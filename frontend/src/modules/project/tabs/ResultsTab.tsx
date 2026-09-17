@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Chart as ChartJS, LinearScale, PointElement, LineElement, Tooltip, Legend } from 'chart.js';
 import { Scatter } from 'react-chartjs-2';
+import TruncatedText from "../../../components/TruncatedText";
 import { api, LabResult, Regression, formatNumber, queryKey } from "../../../api";
 
 ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend);
@@ -121,7 +122,10 @@ const ResultsTab: React.FC<ResultsTabProps> = ({ projectId, projectData }) => {
                             <tbody>
                                 {data.targets.map(t => (
                                     <tr key={t.reference}>
-                                        <td>{t.name}<div className="nano-hint"><code>{t.reference}</code></div></td>
+                                        <td className="nano-cell-name">
+                                            <TruncatedText text={t.name} />
+                                            {t.reference !== t.name && <div className="nano-hint"><TruncatedText text={t.reference} mono /></div>}
+                                        </td>
                                         <td><span className={`nano-badge ${t.detected ? 'nano-badge-critical' : 'nano-badge-inactive'}`}>{t.detected ? 'detected' : 'not detected'}</span></td>
                                         <td>{formatNumber(t.reads)}</td>
                                         <td>{t.fraction != null ? `${t.fraction.toFixed(2)}%` : '—'}</td>

@@ -835,3 +835,15 @@ build (`queries[].key`) together with the classifier kind, so the UI and statist
 normalisation. `python demo.py seed` creates one project per subsystem. Verified in the browser: a seeded
 contamination demo logs `breadth`, `region_depth(gene001)`, `depth`, `fraction`, `region_depth(gene002)`; the
 plug-in demo produces named read-count rows with no alignment requests.
+
+## 8.7 Long reference names
+
+Real accession-style names (`CP118522.1_Mesomycoplasma_ovipneumoniae_ATCC`) pushed the coverage table past its
+panel and wrapped the "Alert when" column one word per line. A `TruncatedText` component (`components/`) now
+renders names on one line with an ellipsis and shows the full text in a tooltip on hover or keyboard focus, but
+only when the text is actually clipped (measured with a `ResizeObserver`), so short names carry no tooltip. It is
+used for target names and reference IDs in the coverage, alerts and lab-results tables, the reference dropdowns
+and the "Read Alignments" heading; numeric cells no longer wrap; the reference-ID cell reads "same as target"
+when the two are identical; chart legend labels are shortened in the middle while the chart tooltip keeps the
+full name; and panel bodies scroll horizontally on narrow screens instead of clipping. Coverage alert messages no
+longer repeat the ID when it equals the display name.

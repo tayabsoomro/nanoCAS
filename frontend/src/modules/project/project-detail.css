@@ -198,6 +198,7 @@
 
 .nano-panel-body {
     padding: var(--ont-spacing-lg);
+    overflow-x: auto; /* wide tables scroll inside the panel instead of being clipped */
 }
 
 .nano-empty-state {
@@ -653,3 +654,49 @@
 
 .nano-demo-guide ul { margin: 6px 0 4px 18px; padding: 0; }
 .nano-demo-guide li { margin-bottom: 2px; }
+
+/* Long names: clip to one line, full text on hover (see TruncatedText). */
+.nano-truncate {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    outline: none;
+}
+.nano-truncate:focus-visible {
+    box-shadow: 0 0 0 2px var(--ont-primary, #1f5f8b);
+    border-radius: 2px;
+}
+.nano-truncate-mono {
+    font-family: var(--ont-font-mono);
+    font-size: 0.875em;
+    background: var(--ont-light-gray);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+.nano-truncate-tip .tooltip-inner {
+    max-width: min(44rem, 90vw);
+    text-align: left;
+    font-family: var(--ont-font-mono);
+    font-size: var(--ont-font-size-xs);
+    overflow-wrap: anywhere;
+}
+
+.nano-table td .nano-truncate { max-width: min(22rem, 26vw); }
+.nano-table td.nano-cell-name .nano-truncate { max-width: min(20rem, 24vw); }
+.nano-table td.nano-cell-id .nano-truncate { max-width: min(16rem, 18vw); }
+.nano-table td.nano-cell-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nano-table td.nano-cell-rules { min-width: 14rem; }
+
+.nano-panel-header h3 .nano-truncate { max-width: min(26rem, 36vw); }
+.nano-panel-controls .dropdown-toggle .nano-truncate,
+.nano-panel-header .dropdown-toggle .nano-truncate { max-width: min(18rem, 24vw); }
+.dropdown-menu .nano-truncate { max-width: 28rem; }
+
+@media (max-width: 900px) {
+    .nano-table td .nano-truncate,
+    .nano-table td.nano-cell-name .nano-truncate,
+    .nano-table td.nano-cell-id .nano-truncate { max-width: 10rem; }
+}
