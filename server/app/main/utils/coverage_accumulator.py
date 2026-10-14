@@ -38,14 +38,30 @@ _DEPTH_DTYPE = np.uint32  # 4 bytes / position; max ~4 billion coverage
 _DEPTH_KEY_PREFIX = 'depth__'
 
 
+def _is_primary(read) -> bool:
+    return not (read.is_unmapped or read.is_secondary or read.is_supplementary)
+
+
+def _count_unmapped(bam) -> int:
+    """Unmapped reads in a BAM. Uses the index statistics when present
+    (O(1)); falls back to a linear scan of the unplaced records."""
+    try:
+        return int(bam.unmapped)
+    except (ValueError, AttributeError):
+        pass
+    try:
+        return sum(1 for r in bam.fetch(until_eof=True) if r.is_unmapped)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 class CoverageAccumulator:
     """Per-project, per-reference depth array with atomic on-disk persistence.
 
     Not thread-safe on its own; callers that touch the accumulator from
-    multiple threads must serialize externally. In nanoCAS today only the
-    watchdog dispatcher thread mutates it, and only the eventlet hub
-    reads the persisted files (via the lazy-merge helper), so the on-disk
-    state is the synchronization point.
+    multiple threads must serialize externally. FileHandler does this with
+    its `coverage_lock`; request handlers only ever read the persisted
+    files, so the on-disk state is the synchronization point.
     """
 
     def __init__(self, state_dir: str):
@@ -60,10 +76,11 @@ class CoverageAccumulator:
         # JSON sidecar is enough to know "which refs do we know about"
         # without loading the (potentially big) npz.
         self.lengths: dict[str, int] = {}
-        # read_counts[ref] matches the semantics of pysam.AlignmentFile.count(ref):
-        # it counts alignments, not unique reads — so secondary / supplementary
-        # alignments inflate the number. That matches the old merged-BAM code
-        # path; keeping it consistent avoids a behaviour change.
+        # read_counts[ref] counts *primary* alignments only (secondary and
+        # supplementary records are skipped), so it equals the number of
+        # distinct reads whose primary hit is on `ref`. minimap2 emits up
+        # to 5 secondary alignments per read by default, which used to
+        # inflate this number several-fold on repetitive references.
         self.read_counts: dict[str, int] = {}
         self.unmapped_count: int = 0
 
@@ -154,16 +171,23 @@ class CoverageAccumulator:
 
             # pysam.count_coverage returns a 4-tuple of arrays (A,C,G,T),
             # each of length ref_length. Sum to get per-position depth.
-            cov = bam.count_coverage(ref)
+            #
+            # quality_threshold=0: pysam's default (15) silently drops
+            # every base with a Phred quality below 15, which for
+            # nanopore reads is a large fraction of all bases and made
+            # the reported depth much lower than `samtools depth`
+            # (whose default is -q 0). read_callback='all' still skips
+            # unmapped / secondary / QC-fail / duplicate records.
+            cov = bam.count_coverage(ref, quality_threshold=0, read_callback='all')
             batch_depth = np.sum(
                 [np.asarray(c, dtype=np.uint32) for c in cov],
                 axis=0,
                 dtype=np.uint32,
             )
             self.depth[ref] += batch_depth.astype(_DEPTH_DTYPE, copy=False)
-            self.read_counts[ref] += bam.count(ref)
+            self.read_counts[ref] += bam.count(ref, read_callback=_is_primary)
 
-        self.unmapped_count += getattr(bam, 'unmapped', 0)
+        self.unmapped_count += _count_unmapped(bam)
 
     # -- read-only views ----------------------------------------------
 

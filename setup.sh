@@ -155,9 +155,9 @@ EOF
 
     # Start the containers
     if [ "$ENV" == "production" ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+        docker compose up -d --build
     else
-        docker-compose up -d
+        docker compose up -d --build
     fi
     
     echo "Docker setup complete. Services are running."
@@ -169,8 +169,10 @@ EOF
 setup_conda() {
     echo "Setting up Conda environment..."
     
-    # Create Conda environment
-    conda env create -f environment.yml
+    # Create Conda environment with the aligners from bioconda and the
+    # Python dependencies from pip.
+    conda create -y -n nanoCAS -c conda-forge -c bioconda python=3.12 minimap2 samtools nodejs
+    conda run -n nanoCAS pip install -r server/requirements.txt
     
     echo "Conda environment 'nanoCAS' created."
     echo "To activate the environment, run: conda activate nanoCAS"

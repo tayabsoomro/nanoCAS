@@ -1,123 +1,32 @@
-.nano-app {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
+.nano-app { min-height: 100vh; display: flex; flex-direction: column; }
+.nano-main { flex: 1; width: 100%; }
 
-.nano-main {
-  flex: 1;
-}
+.container { max-width: 1100px; }
+.lead { font-size: var(--ont-font-size-lg); font-weight: 500; color: var(--ont-black); }
 
-.border-black { border: 2px solid black;}
+.vspacer-10 { height: 10px; }
+.vspacer-20 { height: 20px; }
+.vspacer-50 { height: 32px; }
+.vspacer-100 { height: 32px; }
 
-.border-green { border: 2px solid green;}
-.border-red { border: 2px solid red;}
-.border-blue { border: 2px solid blue;}
-.border-orange { border: 2px solid orange;}
-.border-purple { border: 2px solid purple;}
-
-body {
-  margin: 0;
-  font-family: var(--ont-font-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  color: var(--ont-black);
-}
-
-h3 {
-  font-family: var(--ont-font-heading);
-  font-weight: 600;
-  color: var(--ont-primary);
-}
-
-h4 {
-  font-family: var(--ont-font-heading);
-  font-weight: 500;
-  color: var(--ont-primary);
-}
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-  monospace;
-}
-
+/* Section divider with a centred label (setup wizard). */
 .twline {
-  width: 100%;
+  position: relative;
   text-align: center;
-  border-bottom: 2px solid var(--ont-gray);
-  line-height: 0.1em;
-  margin: 10px 0 20px;
-  color: var(--ont-dark-gray);
+  margin: var(--ont-spacing-lg) 0;
 }
-
+.twline::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  border-top: 1px solid var(--ont-gray);
+}
 .twline span {
-  background: var(--ont-white);
-  padding: 0 10px;
-}
-
-.vspacer-20 {
-  height: 20px;
-}
-
-.vspacer-50 {
-  height: 50px;
-}
-
-.vspacer-100 {
-  height: 100px;
-}
-
-/* Override Bootstrap styles with ONT theme */
-.btn-info {
-  background-color: var(--ont-secondary);
-  border-color: var(--ont-secondary);
-  color: var(--ont-white);
-}
-
-.btn-info:hover, .btn-info:focus {
-  background-color: #0095A0;
-  border-color: #0095A0;
-  color: var(--ont-white);
-}
-
-.btn-primary {
-  background-color: var(--ont-primary);
-  border-color: var(--ont-primary);
-}
-
-.btn-primary:hover, .btn-primary:focus {
-  background-color: #003A44;
-  border-color: #003A44;
-}
-
-.btn-success {
-  background-color: var(--ont-success);
-  border-color: var(--ont-success);
-}
-
-.btn-danger {
-  background-color: var(--ont-danger);
-  border-color: var(--ont-danger);
-}
-
-.text-muted {
-  color: var(--ont-medium-gray) !important;
-}
-
-.lead {
+  position: relative;
+  background: var(--ont-bg);
+  padding: 0 12px;
+  font-size: var(--ont-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--ont-dark-gray);
-  line-height: 1.6;
-}
-
-/* Responsive container */
-.container, .container-fluid {
-  padding-right: var(--ont-spacing-lg);
-  padding-left: var(--ont-spacing-lg);
-}
-
-@media (max-width: 768px) {
-  .container, .container-fluid {
-    padding-right: var(--ont-spacing-md);
-    padding-left: var(--ont-spacing-md);
-  }
 }

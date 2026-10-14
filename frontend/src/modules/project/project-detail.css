@@ -31,10 +31,13 @@
 }
 
 .nano-project-title {
-    font-size: 1.5rem;
+    font-size: var(--ont-font-size-2xl);
     margin: 0;
-    font-family: 'Courier New', monospace;
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
+.nano-title-tag { font-size: var(--ont-font-size-xs); font-weight: 500; }
 
 .nano-project-path {
     font-size: var(--ont-font-size-sm);
@@ -48,14 +51,14 @@
 }
 
 .nano-progress-indicator strong {
-    color: var(--ont-text-color, #00B0BD);
+    color: var(--ont-black);
     font-weight: 600;
 }
 
 .nano-progress-indicator code {
-    font-family: 'Courier New', monospace;
+    font-family: var(--ont-font-mono);
     font-size: 0.9em;
-    background: rgba(0, 0, 0, 0.04);
+    background: var(--ont-light-gray);
     padding: 1px 5px;
     border-radius: 3px;
 }
@@ -88,7 +91,6 @@
 
 .nano-status-indicator.active .nano-status-dot {
     background-color: var(--ont-success);
-    box-shadow: 0 0 6px var(--ont-success);
     animation: pulse-dot 2s infinite;
 }
 
@@ -135,7 +137,7 @@
     left: 0;
     right: 0;
     height: 2px;
-    background-color: var(--ont-secondary);
+    background-color: var(--ont-primary);
 }
 
 .nano-tab-content {
@@ -156,7 +158,7 @@
     width: 32px;
     height: 32px;
     border: 3px solid var(--ont-gray);
-    border-top-color: var(--ont-secondary);
+    border-top-color: var(--ont-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     margin-bottom: var(--ont-spacing-md);
@@ -196,6 +198,7 @@
 
 .nano-panel-body {
     padding: var(--ont-spacing-lg);
+    overflow-x: auto; /* wide tables scroll inside the panel instead of being clipped */
 }
 
 .nano-empty-state {
@@ -241,12 +244,13 @@
 
 .nano-table th {
     font-weight: 600;
-    font-size: var(--ont-font-size-sm);
-    color: var(--ont-primary);
+    font-size: var(--ont-font-size-xs);
+    color: var(--ont-dark-gray);
     background: var(--ont-light-gray);
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
 }
+.nano-table td { font-size: var(--ont-font-size-sm); }
 
 .nano-badge {
     display: inline-block;
@@ -257,7 +261,7 @@
 }
 
 .nano-badge-active {
-    background: rgba(39, 174, 96, 0.15);
+    background: rgba(46, 125, 79, 0.12);
     color: var(--ont-success);
 }
 
@@ -315,10 +319,11 @@
 
 .nano-stat-value {
     display: block;
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--ont-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ont-black);
     line-height: 1.2;
+    font-variant-numeric: tabular-nums;
 }
 
 .nano-stat-label {
@@ -375,7 +380,7 @@
 
 .nano-pore-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--ont-success), var(--ont-secondary));
+    background: var(--ont-primary);
     border-radius: 6px;
     transition: width 0.5s ease;
 }
@@ -428,4 +433,270 @@
     .nano-tab-bar {
         overflow-x: auto;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Alerts, rules, toasts (added with the alerting-system rework)        */
+/* ------------------------------------------------------------------ */
+
+.nano-badge-critical {
+    background: rgba(231, 76, 60, 0.15);
+    color: var(--ont-danger);
+}
+
+.nano-badge-warning {
+    background: rgba(183, 121, 31, 0.14);
+    color: var(--ont-warning);
+}
+
+.nano-badge-info {
+    background: rgba(15, 76, 92, 0.10);
+    color: var(--ont-primary);
+}
+
+.nano-badge-count {
+    margin-left: 6px;
+    background: var(--ont-danger);
+    color: var(--ont-white);
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: var(--ont-font-size-xs);
+}
+
+.nano-alert-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--ont-spacing-md);
+    padding: var(--ont-spacing-sm) var(--ont-spacing-md);
+    border-radius: var(--ont-border-radius-md);
+    margin-bottom: var(--ont-spacing-md);
+    border: 1px solid transparent;
+    font-size: var(--ont-font-size-sm);
+}
+
+.nano-alert-banner.critical {
+    background: rgba(231, 76, 60, 0.08);
+    border-color: var(--ont-danger);
+}
+
+.nano-alert-banner.warning {
+    background: rgba(183, 121, 31, 0.08);
+    border-color: var(--ont-warning);
+}
+
+.nano-alert-banner.neutral {
+    background: var(--ont-light-gray);
+    border-color: var(--ont-gray);
+}
+
+.nano-alert-banner.info {
+    background: rgba(15, 76, 92, 0.06);
+    border-color: var(--ont-primary);
+}
+
+.nano-alert-banner .nano-alert-message {
+    flex: 1;
+}
+
+.nano-alert-banner .nano-alert-close {
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--ont-dark-gray);
+}
+
+.nano-toast-stack {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 380px;
+}
+
+.nano-toast {
+    background: var(--ont-white);
+    border: 1px solid var(--ont-gray);
+    border-left: 4px solid var(--ont-primary);
+    box-shadow: var(--ont-shadow-lg);
+    border-radius: var(--ont-border-radius-md);
+    padding: var(--ont-spacing-sm) var(--ont-spacing-md);
+    font-size: var(--ont-font-size-sm);
+}
+
+.nano-toast.critical { border-left-color: var(--ont-danger); }
+.nano-toast.warning { border-left-color: var(--ont-warning); }
+
+.nano-rule-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--ont-spacing-sm);
+}
+
+.nano-rule-item {
+    display: flex;
+    gap: var(--ont-spacing-sm);
+    align-items: flex-start;
+    padding: var(--ont-spacing-sm) var(--ont-spacing-md);
+    border: 1px solid var(--ont-gray);
+    border-radius: var(--ont-border-radius-md);
+    background: var(--ont-white);
+}
+
+.nano-rule-item.active {
+    border-color: var(--ont-danger);
+    background: rgba(231, 76, 60, 0.05);
+}
+
+.nano-rule-item .nano-rule-title {
+    font-weight: 600;
+    font-size: var(--ont-font-size-sm);
+}
+
+.nano-rule-item .nano-rule-desc {
+    font-size: var(--ont-font-size-xs);
+    color: var(--ont-dark-gray);
+}
+
+.nano-rule-light {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex-shrink: 0;
+    background: var(--ont-success);
+}
+
+.nano-rule-item.active .nano-rule-light {
+    background: var(--ont-danger);
+}
+
+.nano-rule-item.disabled .nano-rule-light {
+    background: var(--ont-medium-gray);
+}
+
+.nano-kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+    font-size: var(--ont-font-size-sm);
+}
+
+.nano-kv dt {
+    color: var(--ont-dark-gray);
+    font-weight: 500;
+    margin: 0;
+}
+
+.nano-kv dd {
+    margin: 0;
+    word-break: break-all;
+}
+
+.nano-health-summary {
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: var(--ont-spacing-sm);
+}
+.nano-health-summary .nano-stat-card { padding: var(--ont-spacing-md) var(--ont-spacing-sm); }
+.nano-chart-box-tall { height: 380px; }
+
+.nano-stat-card.warn .nano-stat-value { color: var(--ont-danger); }
+.nano-stat-sub {
+    display: block;
+    font-size: var(--ont-font-size-xs);
+    color: var(--ont-medium-gray);
+}
+
+.nano-alert-filters {
+    display: flex;
+    gap: var(--ont-spacing-sm);
+    align-items: center;
+    flex-wrap: wrap;
+}
+.nano-alert-filters .form-select { width: auto; }
+
+.nano-table td.nano-alert-time {
+    white-space: nowrap;
+    font-family: var(--ont-font-mono);
+    font-size: var(--ont-font-size-xs);
+}
+
+.nano-alert-row.recovered {
+    opacity: 0.7;
+}
+
+.nano-test-results {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--ont-spacing-sm);
+    margin-top: var(--ont-spacing-sm);
+}
+
+.nano-threshold-hit {
+    font-weight: 600;
+    color: var(--ont-danger);
+}
+
+.nano-chart-box {
+    position: relative;
+    height: 300px;
+}
+
+@media (max-width: 900px) {
+    .nano-health-grid { grid-template-columns: 1fr; }
+    .nano-project-header { flex-direction: column; gap: var(--ont-spacing-md); }
+    .nano-notif-grid { flex-direction: column; gap: var(--ont-spacing-sm); }
+}
+
+.nano-demo-guide ul { margin: 6px 0 4px 18px; padding: 0; }
+.nano-demo-guide li { margin-bottom: 2px; }
+
+/* Long names: clip to one line, full text on hover (see TruncatedText). */
+.nano-truncate {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    outline: none;
+}
+.nano-truncate:focus-visible {
+    box-shadow: 0 0 0 2px var(--ont-primary, #1f5f8b);
+    border-radius: 2px;
+}
+.nano-truncate-mono {
+    font-family: var(--ont-font-mono);
+    font-size: 0.875em;
+    background: var(--ont-light-gray);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+.nano-truncate-tip .tooltip-inner {
+    max-width: min(44rem, 90vw);
+    text-align: left;
+    font-family: var(--ont-font-mono);
+    font-size: var(--ont-font-size-xs);
+    overflow-wrap: anywhere;
+}
+
+.nano-table td .nano-truncate { max-width: min(22rem, 26vw); }
+.nano-table td.nano-cell-name .nano-truncate { max-width: min(20rem, 24vw); }
+.nano-table td.nano-cell-id .nano-truncate { max-width: min(16rem, 18vw); }
+.nano-table td.nano-cell-num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nano-table td.nano-cell-rules { min-width: 14rem; }
+
+.nano-panel-header h3 .nano-truncate { max-width: min(26rem, 36vw); }
+.nano-panel-controls .dropdown-toggle .nano-truncate,
+.nano-panel-header .dropdown-toggle .nano-truncate { max-width: min(18rem, 24vw); }
+.dropdown-menu .nano-truncate { max-width: 28rem; }
+
+@media (max-width: 900px) {
+    .nano-table td .nano-truncate,
+    .nano-table td.nano-cell-name .nano-truncate,
+    .nano-table td.nano-cell-id .nano-truncate { max-width: 10rem; }
 }

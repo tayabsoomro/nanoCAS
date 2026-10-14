@@ -1,30 +1,16 @@
-FROM node:20-alpine as build
-
+# nanoCAS frontend image: production build served by nginx.
+FROM node:20-alpine AS build
 WORKDIR /app
-
-# Copy package.json and package-lock.json
-COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy the rest of the application code
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY . .
-
-# Build the application
+# Empty API endpoint => same-origin requests; nginx proxies /api traffic
+# to the backend container (see nginx.conf).
+ARG REACT_APP_API_ENDPOINT=""
+ENV REACT_APP_API_ENDPOINT=${REACT_APP_API_ENDPOINT}
 RUN npm run build
 
-# Production stage
-FROM nginx:alpine
-
-# Copy the build output to replace the default nginx contents
+FROM nginx:1.27-alpine
 COPY --from=build /app/build /usr/share/nginx/html
-
-# Copy custom nginx config if needed
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Expose port 80
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]

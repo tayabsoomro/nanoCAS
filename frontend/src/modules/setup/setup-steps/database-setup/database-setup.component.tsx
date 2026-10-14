@@ -4,52 +4,57 @@ import { ILocationConfig } from "./database-setup.interfaces";
 import { IAlertData } from "./alert-data-setup/alert-data-setup.interfaces";
 import { IDatabaseSetupProps } from '../../setup.interfaces';
 import LocationsSetupComponent from "./locations-setup/locations-setup.component";
+import DeviceConfigurationComponent from "./device-configuration/device-configuration.component";
 import { IDeviceConfig } from "./device-configuration/device-configuration.interfaces";
 
-const initial_additional_sequences_config: IAlertData = { queries: [] };
-const initial_location_config: ILocationConfig = { nanoporeLocation: "" };
-const initial_alert_config: IDeviceConfig = { device: "" };
+const DatabaseSetupComponent: FunctionComponent<IDatabaseSetupProps> = ({ advanceStep, update, initial }) => {
+    const [alertData, setAlertData] = useState<IAlertData>({ queries: initial.queries, gff_file: initial.gff_file, regions: initial.regions, classifier: initial.classifier });
+    const [locationConfig, setLocationConfig] = useState<ILocationConfig>(initial.locations);
+    const [deviceConfig, setDeviceConfig] = useState<IDeviceConfig>(initial.device);
+    const [error, setError] = useState<string>("");
 
-const DatabaseSetupComponent: FunctionComponent<IDatabaseSetupProps> = ({ advanceStep, update }) => {
-    const [alertData, setAlertData] = useState(initial_additional_sequences_config);
-    const [locationConfig, setLocationConfig] = useState(initial_location_config);
-    const [alertConfig, setAlertConfig] = useState(initial_alert_config);
-
-    const updateDatabaseSetupConfiguration = () => {
-        const invalidQueries = alertData.queries.filter(
-            q => !q.depth_threshold || q.depth_threshold.trim() === "" || isNaN(parseFloat(q.depth_threshold))
-        );
-        if (invalidQueries.length > 0) {
-            alert("Please provide a valid threshold for all queries.");
+    const next = () => {
+        setError("");
+        if (!locationConfig.nanoporeLocation.trim()) {
+            setError("Enter the directory the sequencer writes reads to.");
             return;
         }
-        update({
-            queries: alertData.queries,
-            gff_file: alertData.gff_file,
-            locations: locationConfig,
-            device: alertConfig
-        });
+        if (alertData.queries.length === 0) {
+            setError("Add at least one sequence to watch for.");
+            return;
+        }
+        const invalid = alertData.queries.filter(q =>
+            (q.alert_on_depth && (!q.depth_threshold || isNaN(parseFloat(q.depth_threshold)))) ||
+            (q.alert_on_breadth && (!q.breadth_threshold || isNaN(parseFloat(q.breadth_threshold)))) ||
+            (q.alert_on_reads && (!q.reads_threshold || isNaN(parseFloat(q.reads_threshold)))) ||
+            (q.alert_on_fraction && (!q.fraction_threshold || isNaN(parseFloat(q.fraction_threshold))))
+        );
+        if (invalid.length > 0) {
+            setError("Every enabled alert needs a numeric threshold.");
+            return;
+        }
+        if (alertData.classifier && alertData.classifier.name !== 'minimap2' && !alertData.classifier.database) {
+            setError("Enter the database path for the selected classifier.");
+            return;
+        }
+        update({ queries: alertData.queries, gff_file: alertData.gff_file, regions: alertData.regions,
+                 classifier: alertData.classifier, locations: locationConfig, device: deviceConfig });
         advanceStep();
     };
 
     return (
-        <div className="container-fluid vspacer-100 d-flex p-0 flex-column h-100">
-            <div className="vspacer-50" />
-            <div className="twline"><span>NANOPORE SETUP</span></div>
-            <div className="row justify-content-around">
-                <LocationsSetupComponent initialConfig={initial_location_config} updateConfig={setLocationConfig} />
+        <div>
+            <div className="nano-wizard-panel">
+                <LocationsSetupComponent initialConfig={locationConfig} updateConfig={setLocationConfig} />
+                <DeviceConfigurationComponent initialConfig={deviceConfig} updateConfig={setDeviceConfig} />
             </div>
-            <div className="vspacer-50" />
-            <div className="twline"><span>ALERT DATA SETUP</span></div>
-            <AlertDataSetup initialConfig={initial_additional_sequences_config} updateConfig={setAlertData} />
-            <br />
-            <div className="vspacer-50" />
-            <hr />
-            <br />
-            <div className="container text-center">
-                <button className="btn btn-success col-lg-2 mx-auto" onClick={updateDatabaseSetupConfiguration}>
-                    Next Step
-                </button>
+            <div className="nano-wizard-panel">
+                <AlertDataSetup initialConfig={alertData} updateConfig={setAlertData} />
+            </div>
+            {error && <div className="nano-alert-banner critical"><span className="nano-alert-message">{error}</span></div>}
+            <div className="nano-wizard-actions">
+                <span className="spacer" />
+                <button className="btn btn-primary" onClick={next}>Continue</button>
             </div>
         </div>
     );

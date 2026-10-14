@@ -10,8 +10,9 @@ A nanopore classification and alerting web application for portable diagnostics.
 ## Architecture
 
 - **Frontend**: React 17, TypeScript, Chart.js, react-chartjs-2, Bootstrap. Runs on port 5000 in dev.
-- **Backend**: Flask 2.3, Flask-SocketIO, eventlet. Runs on port 8000 in dev.
-- **Realtime**: WebSocket communication via Socket.IO between frontend and backend.
+- **Backend**: Flask 2.3, Flask-SocketIO (threading async mode, simple-websocket). Runs on port 8000 in dev.
+- **Realtime**: WebSocket (with long-polling fallback) via Socket.IO between frontend and backend.
+- **Alerting**: coverage thresholds (FileHandler) + run-health rules (run_health.py) → alerts.jsonl, e-mail/SMS/MinKNOW/desktop.
 
 ## Navigation & Routing
 
@@ -20,7 +21,7 @@ A nanopore classification and alerting web application for portable diagnostics.
 - `/project/:id` — Project detail view with sub-tabs:
   - `/project/:id/coverage` — Coverage visualization and time series
   - `/project/:id/runhealth` — Run Health dashboard (Q-score, read length, pore health)
-  - `/project/:id/alerts` — Alert configuration and notification settings
+  - `/project/:id/alerts` — Alert history, run-health rules, notification channels + test button
 
 ## Development Setup
 
